@@ -1,0 +1,5 @@
+/res/cache/*
+/res/downloads/*
+
+# every user need to specify their own credentials
+/scripts/credentials.py
