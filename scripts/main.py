@@ -1,7 +1,11 @@
 import json
 from typing import Iterator
 
-import paramiko, zipfile, credentials as creds, io, pickle
+import paramiko
+import zipfile
+import credentials as creds
+import io
+import pickle
 import os
 from tqdm import tqdm
 from os import path
@@ -15,10 +19,67 @@ REMOTE_PATH = '/mnt/matylda1/ikiss/pero/experiments/digiknihovny'
 IDK_JSON_FILE = '../res/project-9-at-2024-03-05-17-19-577ee11f.json'
 CACHE_PATH = '../res/cache'
 IMAGE_ZIP_MAPPING = 'image_zip_mapping'
+
+
 def processing_folder_generator(sftp: paramiko.SFTPClient, remote_path: str) -> Iterator[str]:
     for file_attrs in sftp.listdir_iter(remote_path):
         if file_attrs.filename.startswith("processing"):
             yield file_attrs.filename
+
+
+def process_other_folders(todo_list, ssh_client: paramiko.SFTPClient, folder_name: str) -> None:
+    """Other files must be processed normally :("""
+    print(f"Processing folder {folder_name}")
+
+    if len(todo_list) == 0:
+        return
+
+    uuid_zip_dict = {}
+
+    for image_uuid in todo_list:
+        grep_command_1 = f"grep {image_uuid} {REMOTE_PATH}/{folder_name}/splits/*"
+
+        stdin, stdout, stderr = ssh_client.exec_command(grep_command_1)
+        output = stdout.read().decode()
+        if output:
+            grep_command_2 = f"grep -n {REMOTE_PATH}/{folder_name}/splits/{output.split(':')[0][-9:]} {REMOTE_PATH}/{folder_name}/part_files.txt"
+
+            stdin, stdout, stderr = ssh_client.exec_command(grep_command_2)
+            output = stdout.read().decode()
+            if output:
+                print(image_uuid)
+                uuid_zip_dict[image_uuid] = int(output.split(':')[0])
+                todo_list.remove(image_uuid)
+
+    with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'wb') as f:
+        pickle.dump(uuid_zip_dict, f)
+
+
+def process_first_folder(todo_list, ssh_client: paramiko.SSHClient, folder_name: str):
+    """Using advantage that in first file crop.all exists :)"""
+    print(f"Processing folder {folder_name}")
+
+    if len(todo_list) == 0:
+        return
+
+    uuid_zip_dict = {}
+
+    for image_uuid in todo_list:
+        grep_command = f"grep {image_uuid} {REMOTE_PATH}/{folder_name}/crops.all"
+
+        stdin, stdout, stderr = ssh_client.exec_command(grep_command)
+
+        output = stdout.read().decode()
+        # if match found
+        if output:
+            print(image_uuid)
+            uuid_zip_dict[image_uuid] = int(
+                output.split('|')[0].split('/')[-1][:-4])
+            todo_list.remove(image_uuid)
+
+    with open(path.join(CACHE_PATH, 'processing.2023-09-18', IMAGE_ZIP_MAPPING), 'wb') as f:
+        pickle.dump(uuid_zip_dict, f)
+
 
 def main():
     transport: paramiko.Transport = paramiko.Transport((HOSTNAME, PORT))
@@ -26,44 +87,66 @@ def main():
 
     sftp: paramiko.SFTPClient = paramiko.SFTPClient.from_transport(transport)
 
+    # ssh client for creating map
+    ssh_client = paramiko.SSHClient()
+    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh_client.connect(HOSTNAME, PORT, creds.USERNAME, creds.PASSWORD)
+
     # Download file from remote server
     # sftp.get(REMOTE_ZIPS_PATH + LABELS + '1.zip', LOCAL_FILE_PATH + LABELS + '1.zip')
     if not os.path.exists(os.path.join(LOCAL_PATH, 'splits')):
         os.mkdir(os.path.join(LOCAL_PATH, 'splits'))
 
     # only used when trying to download new data
-    p_dirs = [processing_name for processing_name in processing_folder_generator(sftp, REMOTE_PATH)]
+    p_dirs = [processing_name for processing_name in processing_folder_generator(
+        sftp, REMOTE_PATH)]
 
-    for image_uuid in get_image_uuid_from_json():
-        for p_dir in p_dirs:
-            # create processing dir, if it does not exist
-            if not path.isdir(path.join(CACHE_PATH, p_dir)):
-                os.mkdir(path.join(CACHE_PATH, p_dir))
+    todo_list = [uuid for uuid in get_image_uuid_from_json()]
 
-            # download and create part files index, if it does not exist
-            if not path.isfile(path.join(CACHE_PATH, p_dir, IMAGE_ZIP_MAPPING)):
-                print(f'Image index for {p_dir} isn\'t cached. Creating index ...')
-                # create a temporary index from the part_files.txt
-                part_file_idx: paramiko.SFTPFile = sftp.open(f"{REMOTE_PATH}/{p_dir}/part_files.txt", 'r')
-                if not part_file_idx:
-                    raise IOError
-                part_file_dict = {}
-                for l_number, line in enumerate(part_file_idx.readlines()):
-                    part_file_dict[line[:-1].split("/")[-1].split('_')[-1]] = l_number+1
+    for p_dir in p_dirs:
+        if p_dir == 'processing.2023-09-18':
+            process_first_folder(todo_list, ssh_client, p_dir)
+        else:
+            process_other_folders(todo_list, ssh_client, p_dir)
 
-                del part_file_idx
-                uuid_zip_dict = {}
-                for part_file_attrs in tqdm(sftp.listdir_iter(f"{REMOTE_PATH}/{p_dir}/splits")):
-                    part_file_name: str = part_file_attrs.filename
-                    part_file: paramiko.SFTPFile = sftp.open(f"{REMOTE_PATH}/{p_dir}/splits/{part_file_name}")
-                    for line in part_file.readlines():
-                        image_uuid = line[:-1].split(":")[-1][:-4]
-                        uuid_zip_dict[image_uuid] = part_file_dict[part_file_name[5:]]
-                with open(path.join(CACHE_PATH, p_dir, IMAGE_ZIP_MAPPING), 'wb') as f:
-                    pickle.dump(uuid_zip_dict, f)
-            else:
-                with open(path.join(CACHE_PATH, p_dir, IMAGE_ZIP_MAPPING), 'rb') as f:
-                    uuid_zip_dict = pickle.load(f)
+    # if some images were not found, run again 
+    # process_other_folders for processing.2023-09-18
+    print(len(todo_list))
+
+    # TODO check all pkl files and create list with missing images
+    # TODO
+    # TODO
+
+    # for image_uuid in get_image_uuid_from_json():
+    #     for p_dir in p_dirs:
+    #         # create processing dir, if it does not exist
+    #         if not path.isdir(path.join(CACHE_PATH, p_dir)):
+    #             os.mkdir(path.join(CACHE_PATH, p_dir))
+
+    #         # download and create part files index, if it does not exist
+    #         if not path.isfile(path.join(CACHE_PATH, p_dir, IMAGE_ZIP_MAPPING)):
+    #             print(f'Image index for {p_dir} isn\'t cached. Creating index ...')
+    #             # create a temporary index from the part_files.txt
+    #             part_file_idx: paramiko.SFTPFile = sftp.open(f"{REMOTE_PATH}/{p_dir}/part_files.txt", 'r')
+    #             if not part_file_idx:
+    #                 raise IOError
+    #             part_file_dict = {}
+    #             for l_number, line in enumerate(part_file_idx.readlines()):
+    #                 part_file_dict[line[:-1].split("/")[-1].split('_')[-1]] = l_number+1
+
+    #             del part_file_idx
+    #             uuid_zip_dict = {}
+    #             for part_file_attrs in tqdm(sftp.listdir_iter(f"{REMOTE_PATH}/{p_dir}/splits")):
+    #                 part_file_name: str = part_file_attrs.filename
+    #                 part_file: paramiko.SFTPFile = sftp.open(f"{REMOTE_PATH}/{p_dir}/splits/{part_file_name}")
+    #                 for line in part_file.readlines():
+    #                     image_uuid = line[:-1].split(":")[-1][:-4]
+    #                     uuid_zip_dict[image_uuid] = part_file_dict[part_file_name[5:]]
+    #             with open(path.join(CACHE_PATH, p_dir, IMAGE_ZIP_MAPPING), 'wb') as f:
+    #                 pickle.dump(uuid_zip_dict, f)
+    #         else:
+    #             with open(path.join(CACHE_PATH, p_dir, IMAGE_ZIP_MAPPING), 'rb') as f:
+    # uuid_zip_dict = pickle.load(f)
 
     # remote_splits_path = f"{REMOTE_PATH}/{PROCESSING_2023_09_18}/splits/"
     # remote_page_xml_path = f"{REMOTE_PATH}/{PROCESSING_2023_09_18}/zips/page_xml"
