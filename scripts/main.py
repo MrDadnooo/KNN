@@ -1,6 +1,8 @@
 import json
 from typing import Iterator, Dict, Any
 
+from multiprocessing import Process, Manager, Lock
+import argparse
 import paramiko
 import zipfile
 import credentials as creds
@@ -27,11 +29,16 @@ def processing_folder_generator(sftp: paramiko.SFTPClient, remote_path: str) -> 
             yield file_attrs.filename
 
 
-def process_other_folders(todo_list, ssh_client: paramiko.SFTPClient, folder_name: str) -> None:
-    """Other files must be processed normally :("""
+def process_other_folders(todo_list, folder_name: str, lock: Lock, exists: bool) -> None:
+    """Processing folders with info about images and their zip files"""
     print(f"Processing folder {folder_name}")
 
+    ssh_client: paramiko.SSHClient = paramiko.SSHClient()
+    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh_client.connect(HOSTNAME, PORT, creds.USERNAME, creds.PASSWORD)
+
     if len(todo_list) == 0:
+        ssh_client.close()
         return
 
     uuid_zip_dict = {}
@@ -47,50 +54,51 @@ def process_other_folders(todo_list, ssh_client: paramiko.SFTPClient, folder_nam
             stdin, stdout, stderr = ssh_client.exec_command(grep_command_2)
             output = stdout.read().decode()
             if output:
-                print(image_uuid)
-                uuid_zip_dict[image_uuid] = int(output.split(':')[0])
-                todo_list.remove(image_uuid)
+                with lock:
+                    if image_uuid in todo_list:
+                        print(f'uuid: {image_uuid} found in {folder_name}')
+                        uuid_zip_dict[image_uuid] = int(output.split(':')[0])
+                        todo_list.remove(image_uuid)
+
+    ssh_client.close()
 
     with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'wb') as f:
         pickle.dump(uuid_zip_dict, f)
 
+def directory_download_workers(todo_list: list[str], folder_names: list[str]):
+    """Create a process for each folder to get the relevant data"""
 
-def process_first_folder(todo_list, ssh_client: paramiko.SSHClient, folder_name: str):
-    """Using advantage that in first file crop.all exists :)"""
-    print(f"Processing folder {folder_name}")
+    exists: bool = True
 
-    if len(todo_list) == 0:
-        return
+    with Manager() as manager:
+        shared_todo_list = manager.list(todo_list)
+        lock = manager.Lock()
 
-    uuid_zip_dict = {}
+        processes = []
+        for folder_name in folder_names:
+            # check if folder name exists in cache
+            if not path.isdir(path.join(CACHE_PATH, folder_name)):
+                os.mkdir(path.join(CACHE_PATH, folder_name))
+                exists = False
+                
+            p = Process(target=process_other_folders, args=(shared_todo_list, folder_name, lock, exists))
+            processes.append(p)
+            p.start()
 
-    for image_uuid in todo_list:
-        grep_command = f"grep {image_uuid} {REMOTE_PATH}/{folder_name}/crops.all"
+        for p in processes:
+            p.join()
 
-        stdin, stdout, stderr = ssh_client.exec_command(grep_command)
-
-        output = stdout.read().decode()
-        # if match found
-        if output:
-            print(image_uuid)
-            uuid_zip_dict[image_uuid] = int(
-                output.split('|')[0].split('/')[-1][:-4])
-            todo_list.remove(image_uuid)
-
-    with open(path.join(CACHE_PATH, 'processing.2023-09-18', IMAGE_ZIP_MAPPING), 'wb') as f:
-        pickle.dump(uuid_zip_dict, f)
-
+    print('All processes finished')
 
 def main():
+    args = argparse.ArgumentParser(description='Download data from remote server')
+    args.add_argument('--update', action='store_true')
+    args = args.parse_args()
+
     transport: paramiko.Transport = paramiko.Transport((HOSTNAME, PORT))
     transport.connect(None, creds.USERNAME, creds.PASSWORD)
 
     sftp: paramiko.SFTPClient = paramiko.SFTPClient.from_transport(transport)
-
-    # ssh client for creating map
-    ssh_client: paramiko.SSHClient = paramiko.SSHClient()
-    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh_client.connect(HOSTNAME, PORT, creds.USERNAME, creds.PASSWORD)
 
     # Download file from remote server
     # sftp.get(REMOTE_ZIPS_PATH + LABELS + '1.zip', LOCAL_FILE_PATH + LABELS + '1.zip')
@@ -103,19 +111,8 @@ def main():
 
     todo_list = [uuid for uuid in get_image_uuid_from_json()]
 
-    # for p_dir in p_dirs:
-    #     if p_dir == 'processing.2023-09-18':
-    #         process_first_folder(todo_list, ssh_client, p_dir)
-    #     else:
-    #         process_other_folders(todo_list, sftp, p_dir)
-
-    # if some images were not found, run again
-    # process_other_folders for processing.2023-09-18
-    print(len(todo_list))
-
-    # TODO check all pkl files and create list with missing images
-    # TODO
-    # TODO
+    if args.update:
+        directory_download_workers(todo_list, p_dirs)
 
     uuid_mappings = create_image_to_zip_mapping_local(p_dirs)
 
@@ -238,4 +235,3 @@ def get_image_uuid_from_json(json_path: str = '../res/project-9-at-2024-03-05-17
 
 if __name__ == "__main__":
     main()
-    # foo()
