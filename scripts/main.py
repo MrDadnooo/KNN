@@ -62,25 +62,47 @@ def process_other_folders(todo_list, folder_name: str, lock: Lock, exists: bool)
 
     ssh_client.close()
 
-    with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'wb') as f:
-        pickle.dump(uuid_zip_dict, f)
+    if exists:
+        with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'rb') as f:
+            old_uuid_zip_dict = pickle.load(f)
+            old_uuid_zip_dict.update(uuid_zip_dict)
+            with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'wb') as f:
+                pickle.dump(old_uuid_zip_dict, f)
+    else:
+        with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'wb') as f:
+            pickle.dump(uuid_zip_dict, f)
 
-def directory_download_workers(todo_list: list[str], folder_names: list[str]):
+def directory_download_workers(folder_names: list[str]):
     """Create a process for each folder to get the relevant data"""
 
+    todo_list: list[str] = [uuid for uuid in get_image_uuid_from_json()]
     exists: bool = True
 
     with Manager() as manager:
         shared_todo_list = manager.list(todo_list)
         lock = manager.Lock()
 
-        processes = []
         for folder_name in folder_names:
-            # check if folder name exists in cache
             if not path.isdir(path.join(CACHE_PATH, folder_name)):
                 os.mkdir(path.join(CACHE_PATH, folder_name))
                 exists = False
-                
+
+            # if pkl file exists, check ids which are in file and remove them from todo list
+            if path.isfile(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING)):
+                exists = True
+                with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'rb') as f:
+                    uuid_zip_dict = pickle.load(f)
+                    for uuid in uuid_zip_dict:
+                        if uuid in shared_todo_list:
+                            shared_todo_list.remove(uuid)
+
+        print(f'Number of images to process: {len(shared_todo_list)}')
+        processes = []
+        for folder_name in folder_names:
+            # check if folder name exists in cache
+            
+
+
             p = Process(target=process_other_folders, args=(shared_todo_list, folder_name, lock, exists))
             processes.append(p)
             p.start()
@@ -109,14 +131,13 @@ def main():
     p_dirs = [processing_name for processing_name in processing_folder_generator(
         sftp, REMOTE_PATH)]
 
-    todo_list = [uuid for uuid in get_image_uuid_from_json()]
 
     if args.update:
-        directory_download_workers(todo_list, p_dirs)
+        directory_download_workers(p_dirs)
 
-    uuid_mappings = create_image_to_zip_mapping_local(p_dirs)
+    # uuid_mappings = create_image_to_zip_mapping_local(p_dirs)
 
-    download_relevant_zips(sftp, p_dirs, uuid_mappings)
+    # download_relevant_zips(sftp, p_dirs, uuid_mappings)
 
     if sftp:
         sftp.close()
