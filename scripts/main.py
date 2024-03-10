@@ -72,10 +72,11 @@ def process_other_folders(todo_list, folder_name: str, lock: Lock, exists: bool)
         with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'wb') as f:
             pickle.dump(uuid_zip_dict, f)
 
+
 def directory_download_workers(folder_names: list[str]):
     """Create a process for each folder to get the relevant data"""
 
-    todo_list: list[str] = [uuid for uuid in get_image_uuid_from_json()]
+    todo_list: list[str] = [uuid for uuid in get_image_uuids_from_json()]
     exists: bool = True
 
     with Manager() as manager:
@@ -100,9 +101,6 @@ def directory_download_workers(folder_names: list[str]):
         processes = []
         for folder_name in folder_names:
             # check if folder name exists in cache
-            
-
-
             p = Process(target=process_other_folders, args=(shared_todo_list, folder_name, lock, exists))
             processes.append(p)
             p.start()
@@ -111,6 +109,7 @@ def directory_download_workers(folder_names: list[str]):
             p.join()
 
     print('All processes finished')
+
 
 def main():
     args = argparse.ArgumentParser(description='Download data from remote server')
@@ -122,14 +121,16 @@ def main():
 
     sftp: paramiko.SFTPClient = paramiko.SFTPClient.from_transport(transport)
 
-    # Download file from remote server
-    # sftp.get(REMOTE_ZIPS_PATH + LABELS + '1.zip', LOCAL_FILE_PATH + LABELS + '1.zip')
+    # ssh client for creating map
+    ssh_client: paramiko.SSHClient = paramiko.SSHClient()
+    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh_client.connect(HOSTNAME, PORT, creds.USERNAME, creds.PASSWORD)
+
     if not os.path.exists(os.path.join(LOCAL_PATH, 'splits')):
         os.mkdir(os.path.join(LOCAL_PATH, 'splits'))
 
     # only used when trying to download new data
-    p_dirs = [processing_name for processing_name in processing_folder_generator(
-        sftp, REMOTE_PATH)]
+    p_dirs = [processing_name for processing_name in processing_folder_generator(sftp, REMOTE_PATH)]
 
 
     if args.update:
@@ -137,7 +138,10 @@ def main():
 
     # uuid_mappings = create_image_to_zip_mapping_local(p_dirs)
 
-    # download_relevant_zips(sftp, p_dirs, uuid_mappings)
+    uuid_mappings = create_image_to_zip_mapping_local(p_dirs)
+
+    image_uuids = get_image_uuids_from_json()
+    download_zip(sftp, p_dirs, uuid_mappings, image_uuids)
 
     if sftp:
         sftp.close()
@@ -145,11 +149,25 @@ def main():
         transport.close()
 
 
-def download_relevant_zips(
+def find_path_to_source(image_uuid: str, uuid_mappings: dict[str, dict[str, str]],
+                        sftp: paramiko.SFTPClient,
+                        p_dirs: list[str]) -> tuple[str, str]:
+    # find corresponding
+    for p_dir in p_dirs: ...
+
+
+
+def process_xml_document(image_uuid: str):
+    # find the corresponding zip
+
+    ...
+
+
+def download_zip(
         sftp: paramiko.SFTPClient,
         p_dirs: list[str],
         image_zip_mappings: dict[str, dict[str, str]],
-        json_path: str = '../res/project-9-at-2024-03-05-17-19-577ee11f.json'):
+        image_uuids: list[str]):
 
     for p_dir in p_dirs:
         zip_path = path.join(CACHE_PATH, p_dir, 'zips')
@@ -157,7 +175,7 @@ def download_relevant_zips(
         os.makedirs(path.join(zip_path, 'labels'), exist_ok=True)
         os.makedirs(path.join(zip_path, 'crops'), exist_ok=True)
 
-    for image_uuid in get_image_uuid_from_json(json_path):
+    for image_uuid in image_uuids:
         for p_dir in p_dirs:
             if zip_idx := image_zip_mappings.get(p_dir).get(image_uuid):
                 zip_path = f"{REMOTE_PATH}/{p_dir}/zips/page_xml/{zip_idx}.zip"
@@ -213,7 +231,7 @@ def create_image_to_zip_mapping_local(p_dirs: list[str]) -> dict[str, dict[str, 
 
 
 def create_image_to_zip_mapping(sftp: paramiko.SFTPClient, p_dirs: list[str]) -> dict[str, str]:
-    for image_uuid in get_image_uuid_from_json():
+    for image_uuid in get_image_uuids_from_json():
         for p_dir in p_dirs:
             # create processing dir, if it does not exist
             if not path.isdir(path.join(CACHE_PATH, p_dir)):
@@ -246,7 +264,8 @@ def create_image_to_zip_mapping(sftp: paramiko.SFTPClient, p_dirs: list[str]) ->
                     uuid_zip_dict = pickle.load(f)
     return uuid_zip_dict
 
-def get_image_uuid_from_json(json_path: str = '../res/project-9-at-2024-03-05-17-19-577ee11f.json') -> list[str]:
+
+def get_image_uuids_from_json(json_path: str = '../res/project-9-at-2024-03-05-17-19-577ee11f.json') -> list[str]:
     with open(json_path, 'r') as f:
         data = json.load(f)
         for el in data:
