@@ -1,5 +1,5 @@
 import json
-from typing import Iterator, Dict, Any, IO
+from typing import Iterator, Dict, Any
 
 from multiprocessing import Process, Manager, Lock
 import argparse
@@ -35,7 +35,7 @@ def processing_folder_generator(sftp: paramiko.SFTPClient, remote_path: str) -> 
             yield file_attrs.filename
 
 
-def process_other_folders(todo_list, folder_name: str, lock: Lock, exists: bool) -> None:
+def create_uuid_zip_map(todo_list: list[str], folder_name: str, exists: bool) -> None:
     """Processing folders with info about images and their zip files"""
     print(f"Processing folder {folder_name}")
 
@@ -47,30 +47,27 @@ def process_other_folders(todo_list, folder_name: str, lock: Lock, exists: bool)
         ssh_client.close()
         return
 
-    uuid_zip_dict = {}
+    uuid_zip_dict: dict[str, str] = {}
 
-    for image_uuid in todo_list:
-        grep_command_1 = f"grep {image_uuid} {REMOTE_PATH}/{folder_name}/splits/*"
+    for image_uuid in todo_list[:]:
+        grep_command_1: str = f"grep {image_uuid} {REMOTE_PATH}/{folder_name}/splits/*"
 
         stdin, stdout, stderr = ssh_client.exec_command(grep_command_1)
         output = stdout.read().decode()
         if output:
-            grep_command_2 = f"grep -n {REMOTE_PATH}/{folder_name}/splits/{output.split(':')[0][-9:]} {REMOTE_PATH}/{folder_name}/part_files.txt"
+            grep_command_2: str = f"grep -n {REMOTE_PATH}/{folder_name}/splits/{output.split(':')[0][-9:]} {REMOTE_PATH}/{folder_name}/part_files.txt"
 
             stdin, stdout, stderr = ssh_client.exec_command(grep_command_2)
-            output = stdout.read().decode()
+            output: str = stdout.read().decode()
             if output:
-                with lock:
-                    if image_uuid in todo_list:
-                        print(f'uuid: {image_uuid} found in {folder_name}')
-                        uuid_zip_dict[image_uuid] = int(output.split(':')[0])
-                        todo_list.remove(image_uuid)
+                print(f'uuid: {image_uuid} found in {folder_name}')
+                uuid_zip_dict[image_uuid] = int(output.split(':')[0])
 
     ssh_client.close()
 
     if exists:
         with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'rb') as f:
-            old_uuid_zip_dict = pickle.load(f)
+            old_uuid_zip_dict: dict[str, str] = pickle.load(f)
             old_uuid_zip_dict.update(uuid_zip_dict)
             with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'wb') as f:
                 pickle.dump(old_uuid_zip_dict, f)
@@ -79,35 +76,34 @@ def process_other_folders(todo_list, folder_name: str, lock: Lock, exists: bool)
             pickle.dump(uuid_zip_dict, f)
 
 
-def directory_download_workers(folder_names: list[str]):
+def create_uuid_zip_map_worker(folder_names: list[str]):
     """Create a process for each folder to get the relevant data"""
 
     todo_list: list[str] = [uuid for uuid in get_image_uuids_from_json()]
     exists: bool = True
 
-    with Manager() as manager:
-        shared_todo_list = manager.list(todo_list)
-        lock = manager.Lock()
-
-        for folder_name in folder_names:
-            if not path.isdir(path.join(CACHE_PATH, folder_name)):
-                os.mkdir(path.join(CACHE_PATH, folder_name))
-                exists = False
+    for folder_name in folder_names:
+        if not path.isdir(path.join(CACHE_PATH, folder_name)):
+            os.mkdir(path.join(CACHE_PATH, folder_name))
+            exists = False
 
             # if pkl file exists, check ids which are in file and remove them from todo list
-            if path.isfile(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING)):
-                exists = True
-                with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'rb') as f:
-                    uuid_zip_dict = pickle.load(f)
-                    for uuid in uuid_zip_dict:
-                        if uuid in shared_todo_list:
-                            shared_todo_list.remove(uuid)
+        if path.isfile(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING)):
+            exists = True
+            with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'rb') as f:
+                uuid_zip_dict: dict[str, str] = pickle.load(f)
+                for uuid in uuid_zip_dict:
+                    if uuid in todo_list:
+                        todo_list.remove(uuid)
 
-        print(f'Number of images to process: {len(shared_todo_list)}')
+    with Manager() as manager:
+
+        print(f'Number of images to process: {len(todo_list)}')
         processes = []
         for folder_name in folder_names:
             # check if folder name exists in cache
-            p = Process(target=process_other_folders, args=(shared_todo_list, folder_name, lock, exists))
+            p = Process(target=create_uuid_zip_map, args=(
+                todo_list, folder_name, exists))
             processes.append(p)
             p.start()
 
@@ -118,7 +114,8 @@ def directory_download_workers(folder_names: list[str]):
 
 
 def main():
-    args = argparse.ArgumentParser(description='Download data from remote server')
+    args = argparse.ArgumentParser(
+        description='Download data from remote server')
     args.add_argument('--update', action='store_true')
     args = args.parse_args()
 
@@ -127,11 +124,8 @@ def main():
 
     sftp: paramiko.SFTPClient = paramiko.SFTPClient.from_transport(transport)
 
-    # ssh client for creating map
-    ssh_client: paramiko.SSHClient = paramiko.SSHClient()
-    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh_client.connect(HOSTNAME, PORT, creds.USERNAME, creds.PASSWORD)
-
+    # Download file from remote server
+    # sftp.get(REMOTE_ZIPS_PATH + LABELS + '1.zip', LOCAL_FILE_PATH + LABELS + '1.zip')
     if not os.path.exists(os.path.join(LOCAL_PATH, 'splits')):
         os.mkdir(os.path.join(LOCAL_PATH, 'splits'))
 
@@ -139,7 +133,7 @@ def main():
     p_dirs = [processing_name for processing_name in processing_folder_generator(sftp, REMOTE_PATH)]
 
     if args.update:
-        directory_download_workers(p_dirs)
+        create_uuid_zip_map_worker(p_dirs)
 
     # uuid_mappings = create_image_to_zip_mapping_local(p_dirs)
 
@@ -201,7 +195,7 @@ def process_xml_document(image_uuid: str, xml_file: IO[bytes]):
 
     print(len(regions), regions)
 
-    
+
     ...
 
 
