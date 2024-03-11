@@ -1,8 +1,11 @@
 import json
-from typing import Iterator, Dict, Any
+from typing import Iterator, Dict, Any, IO
 
 from multiprocessing import Process, Manager, Lock
 import argparse
+from zipfile import ZipFile
+
+import xml.etree.ElementTree as ET
 import paramiko
 import zipfile
 import credentials as creds
@@ -12,6 +15,9 @@ import os
 from tqdm import tqdm
 from os import path
 from urllib.parse import unquote
+import numpy as np
+from matplotlib import pyplot as plt
+import matplotlib.patches as patches
 
 HOSTNAME = 'merlin.fit.vutbr.cz'
 PORT = 22
@@ -132,7 +138,6 @@ def main():
     # only used when trying to download new data
     p_dirs = [processing_name for processing_name in processing_folder_generator(sftp, REMOTE_PATH)]
 
-
     if args.update:
         directory_download_workers(p_dirs)
 
@@ -141,7 +146,10 @@ def main():
     uuid_mappings = create_image_to_zip_mapping_local(p_dirs)
 
     image_uuids = get_image_uuids_from_json()
-    download_zip(sftp, p_dirs, uuid_mappings, image_uuids)
+    # download_zip(sftp, p_dirs, uuid_mappings, image_uuids)
+
+    find_path_to_source(next(image_uuids), uuid_mappings, sftp, p_dirs)
+
 
     if sftp:
         sftp.close()
@@ -153,14 +161,74 @@ def find_path_to_source(image_uuid: str, uuid_mappings: dict[str, dict[str, str]
                         sftp: paramiko.SFTPClient,
                         p_dirs: list[str]) -> tuple[str, str]:
     # find corresponding
-    for p_dir in p_dirs: ...
+    matched_p_dir = None
+    for p_dir in p_dirs:
+        if uuid_mappings.get(p_dir).get(image_uuid):
+            matched_p_dir = p_dir
+            break
+    if not matched_p_dir:
+        # TODO probably update indexes when not found
+        raise IOError
+
+    print(f"{image_uuid=} {matched_p_dir=}")
+    zip_file = fetch_zip_file(sftp, matched_p_dir, uuid_mappings.get(matched_p_dir), image_uuid, 'page_xml')
+    if zip_file:
+        with zip_file.open(f"uuid:{image_uuid}.xml", 'r') as xml_file:
+            process_xml_document(image_uuid, xml_file)
 
 
+def process_xml_document(image_uuid: str, xml_file: IO[bytes]):
+    def tag(el): return el.tag.split('}', 1)[1] if '}' in el.tag else el.tag
 
-def process_xml_document(image_uuid: str):
-    # find the corresponding zip
+    xml_root = ET.parse(xml_file)
+    page_el = None
+    for child in xml_root.getroot():
+        if tag(child) == 'Page':
+            page_el = child
+            break
+    if not page_el:
+        raise NotImplemented
 
+    width = page_el.get('imageWidth')
+    height = page_el.get('imageHeight')
+
+    regions = []
+
+    for text_region in page_el:
+        coords_str = text_region[0].get('points')
+        coords = [(int(pair.split(',')[0]), int(pair.split(',')[1])) for pair in coords_str.split(' ')]
+        regions.append(coords)
+
+    print(len(regions), regions)
+
+    
     ...
+
+
+def fetch_zip_file(sftp: paramiko.SFTPClient,
+                   p_dir: str,
+                   image_zip_mappings: dict[str, str],
+                   image_uuid: str,
+                   file_type: str) -> ZipFile | None:
+    os.makedirs(path.join(CACHE_PATH, p_dir, 'zips', file_type), exist_ok=True)
+
+    if zip_idx := image_zip_mappings.get(image_uuid):
+        remote_zip_path = f"{REMOTE_PATH}/{p_dir}/zips/{file_type}/{zip_idx}.zip"
+        local_zip_path = path.join(CACHE_PATH, p_dir, 'zips', file_type, f'{zip_idx}.zip')
+        if not path.exists(local_zip_path):
+            try:
+                sftp.stat(remote_zip_path)
+            except FileNotFoundError:
+                print(f'{remote_zip_path} does not exist on remote host for uuid {image_uuid}')
+                return None
+            print('downloading uuid', image_uuid, 'path', remote_zip_path)
+            sftp.get(remote_zip_path, f"{CACHE_PATH}/{p_dir}/zips/{file_type}/{zip_idx}.zip")
+        else:
+            print(f'zip {zip_idx} is already downloaded for uuid: {image_uuid}')
+        return zipfile.ZipFile(path.join(local_zip_path))
+    else:
+        print(f"couldn't not find an image mapping for {image_uuid=}")
+        return None
 
 
 def download_zip(
@@ -168,7 +236,6 @@ def download_zip(
         p_dirs: list[str],
         image_zip_mappings: dict[str, dict[str, str]],
         image_uuids: list[str]):
-
     for p_dir in p_dirs:
         zip_path = path.join(CACHE_PATH, p_dir, 'zips')
         os.makedirs(path.join(zip_path, 'page_xml'), exist_ok=True)
@@ -197,7 +264,7 @@ def download_zip(
 def create_image_to_zip_mapping_local(p_dirs: list[str]) -> dict[str, dict[str, int | Any] | Any]:
     processing_dict = {}
     for p_dir in p_dirs:
-        print('start', p_dir)
+        print('started loading: ', p_dir)
         # create processing dir, if it does not exist
         if not path.isdir(path.join(CACHE_PATH, p_dir)):
             os.mkdir(path.join(CACHE_PATH, p_dir))
@@ -221,11 +288,9 @@ def create_image_to_zip_mapping_local(p_dirs: list[str]) -> dict[str, dict[str, 
                         uuid_zip_dict[image_uuid] = part_file_dict[part_file_name[5:]]
             with open(path.join(CACHE_PATH, p_dir, IMAGE_ZIP_MAPPING), 'wb') as f:
                 pickle.dump(uuid_zip_dict, f)
-                print('if', p_dir)
                 processing_dict[p_dir] = uuid_zip_dict
         else:
             with open(path.join(CACHE_PATH, p_dir, IMAGE_ZIP_MAPPING), 'rb') as f:
-                print('else', p_dir)
                 processing_dict[p_dir] = pickle.load(f)
     return processing_dict
 
@@ -265,7 +330,7 @@ def create_image_to_zip_mapping(sftp: paramiko.SFTPClient, p_dirs: list[str]) ->
     return uuid_zip_dict
 
 
-def get_image_uuids_from_json(json_path: str = '../res/project-9-at-2024-03-05-17-19-577ee11f.json') -> list[str]:
+def get_image_uuids_from_json(json_path: str = '../res/project-9-at-2024-03-05-17-19-577ee11f.json') -> Iterator[str]:
     with open(json_path, 'r') as f:
         data = json.load(f)
         for el in data:
