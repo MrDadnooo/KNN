@@ -1,5 +1,5 @@
 import json
-from typing import Iterator, Dict, Any
+from typing import Iterator, Dict, Any, IO
 
 from multiprocessing import Process, Manager, Lock
 import argparse
@@ -18,6 +18,10 @@ from urllib.parse import unquote
 import numpy as np
 from matplotlib import pyplot as plt
 import matplotlib.patches as patches
+import matplotlib
+import annotation
+from matplotlib.collections import PatchCollection
+
 
 HOSTNAME = 'merlin.fit.vutbr.cz'
 PORT = 22
@@ -27,6 +31,7 @@ REMOTE_PATH = '/mnt/matylda1/ikiss/pero/experiments/digiknihovny'
 IDK_JSON_FILE = '../res/project-9-at-2024-03-05-17-19-577ee11f.json'
 CACHE_PATH = '../res/cache'
 IMAGE_ZIP_MAPPING = 'image_zip_mapping'
+JSON_PATH = '../res/project-9-at-2024-03-05-17-19-577ee11f.json'
 
 
 def processing_folder_generator(sftp: paramiko.SFTPClient, remote_path: str) -> Iterator[str]:
@@ -141,8 +146,15 @@ def main():
 
     image_uuids = get_image_uuids_from_json()
     # download_zip(sftp, p_dirs, uuid_mappings, image_uuids)
-
-    find_path_to_source(next(image_uuids), uuid_mappings, sftp, p_dirs)
+    next(image_uuids)
+    next(image_uuids)
+    image_uuid = next(image_uuids)
+    xml_file = fetch_xml(image_uuid, uuid_mappings, sftp, p_dirs)
+    if xml_file:
+        with open(JSON_PATH, 'r') as f:
+            json_data = json.load(f)
+            annotation.parse_input_json(in_dict=json_data)
+            process_xml_document(image_uuid, xml_file)
 
 
     if sftp:
@@ -151,9 +163,9 @@ def main():
         transport.close()
 
 
-def find_path_to_source(image_uuid: str, uuid_mappings: dict[str, dict[str, str]],
+def fetch_xml(image_uuid: str, uuid_mappings: dict[str, dict[str, str]],
                         sftp: paramiko.SFTPClient,
-                        p_dirs: list[str]) -> tuple[str, str]:
+                        p_dirs: list[str]):
     # find corresponding
     matched_p_dir = None
     for p_dir in p_dirs:
@@ -167,8 +179,12 @@ def find_path_to_source(image_uuid: str, uuid_mappings: dict[str, dict[str, str]
     print(f"{image_uuid=} {matched_p_dir=}")
     zip_file = fetch_zip_file(sftp, matched_p_dir, uuid_mappings.get(matched_p_dir), image_uuid, 'page_xml')
     if zip_file:
-        with zip_file.open(f"uuid:{image_uuid}.xml", 'r') as xml_file:
-            process_xml_document(image_uuid, xml_file)
+        return zip_file.open(f"uuid:{image_uuid}.xml", 'r')
+    return None
+
+
+def parse_points(input_str: str) -> np.array:
+    return np.array([list(map(int, point.split(','))) for point in input_str.split()])
 
 
 def process_xml_document(image_uuid: str, xml_file: IO[bytes]):
@@ -186,17 +202,20 @@ def process_xml_document(image_uuid: str, xml_file: IO[bytes]):
     width = page_el.get('imageWidth')
     height = page_el.get('imageHeight')
 
-    regions = []
+    regions = [parse_points(text[0].get('points')) for text in page_el]
 
-    for text_region in page_el:
-        coords_str = text_region[0].get('points')
-        coords = [(int(pair.split(',')[0]), int(pair.split(',')[1])) for pair in coords_str.split(' ')]
-        regions.append(coords)
-
-    print(len(regions), regions)
+    fig, ax = plt.subplots()
 
 
-    ...
+    patches_list = []
+    for region_coords in regions:
+        polygon = patches.Polygon(region_coords, closed=True, fill=False, edgecolor='red', linewidth=1)
+        ax.add_patch(polygon)
+
+    plt.gca().set_aspect('equal', adjustable='box')
+    ax.set_xlim(0, int(width))
+    ax.set_ylim(0, int(height))
+    plt.show()
 
 
 def fetch_zip_file(sftp: paramiko.SFTPClient,
