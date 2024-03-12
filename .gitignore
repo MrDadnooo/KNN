@@ -1,5 +1,6 @@
 /res/cache/*
 /res/downloads/*
+/res/xmls/*
 
 # every user need to specify their own credentials
 /scripts/credentials.py
