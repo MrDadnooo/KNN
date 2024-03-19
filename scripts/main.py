@@ -161,6 +161,41 @@ def main():
         transport.close()
 
 
+def get_p_dir_by_uuid(uuid: str, p_dirs: list[str]) -> str:
+    # find uuid in pkl files and return the p_dir
+    for p_dir in p_dirs:
+        with open(path.join(CACHE_PATH, p_dir, IMAGE_ZIP_MAPPING), 'rb') as f:
+            uuid_zip_dict: dict[str, str] = pickle.load(f)
+            if uuid in uuid_zip_dict:
+                return p_dir
+
+
+def fetch_crops(image_uuid: str, uuid_mappings: dict[str, dict[str, str]],
+                        sftp: paramiko.SFTPClient,
+                        p_dirs: list[str]):
+    matched_p_dir = get_p_dir_by_uuid(image_uuid, p_dirs)
+    if not matched_p_dir:
+        raise IOError
+
+    zip_file = fetch_zip_file(sftp, matched_p_dir, uuid_mappings.get(matched_p_dir), image_uuid, 'crops')
+    if zip_file:
+        return zip_file.open(f"uuid:{image_uuid}.png", 'r')
+    return None
+
+
+def fetch_labels(image_uuid: str, uuid_mappings: dict[str, dict[str, str]],
+             sftp: paramiko.SFTPClient,
+             p_dirs: list[str]):
+    matched_p_dir = get_p_dir_by_uuid(image_uuid, p_dirs)
+    if not matched_p_dir:
+        raise IOError
+
+    zip_file = fetch_zip_file(sftp, matched_p_dir, uuid_mappings.get(matched_p_dir), image_uuid, 'labels')
+    if zip_file:
+        return zip_file.open(f"uuid:{image_uuid}.xml", 'r')
+    return None
+
+
 def fetch_xml(image_uuid: str, uuid_mappings: dict[str, dict[str, str]],
               sftp: paramiko.SFTPClient,
               p_dirs: list[str]):
