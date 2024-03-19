@@ -1,11 +1,10 @@
 import json
-from typing import Iterator, Dict, Any, IO
+from typing import Iterator, Dict, Any
 
 from multiprocessing import Process, Manager, Lock
 import argparse
 from zipfile import ZipFile
 
-import xml.etree.ElementTree as ET
 import paramiko
 import zipfile
 import credentials as creds
@@ -15,13 +14,9 @@ import os
 from tqdm import tqdm
 from os import path
 from urllib.parse import unquote
-import numpy as np
-from matplotlib import pyplot as plt
-import matplotlib.patches as patches
-import matplotlib
 import annotation
-from matplotlib.collections import PatchCollection
-
+import dataset
+from parse_xml import plot_text_regions, parse_xml_document
 
 HOSTNAME = 'merlin.fit.vutbr.cz'
 PORT = 22
@@ -145,17 +140,20 @@ def main():
     uuid_mappings = create_image_to_zip_mapping_local(p_dirs)
 
     image_uuids = get_image_uuids_from_json()
-    # download_zip(sftp, p_dirs, uuid_mappings, image_uuids)
-    next(image_uuids)
-    next(image_uuids)
+
     image_uuid = next(image_uuids)
+    image_uuid = next(image_uuids)
+
     xml_file = fetch_xml(image_uuid, uuid_mappings, sftp, p_dirs)
     if xml_file:
         with open(JSON_PATH, 'r') as f:
             json_data = json.load(f)
-            annotation.parse_input_json(in_dict=json_data)
-            process_xml_document(image_uuid, xml_file)
+            annotation_docs = annotation.parse_input_json(in_dict=json_data)
+            ocr_data = parse_xml_document(xml_file)
+            plot_text_regions(ocr_data, annotation_docs, image_uuid)
 
+            ann_el = annotation_docs[image_uuid]
+            dataset.test(ocr_data, ann_el)
 
     if sftp:
         sftp.close()
@@ -164,8 +162,8 @@ def main():
 
 
 def fetch_xml(image_uuid: str, uuid_mappings: dict[str, dict[str, str]],
-                        sftp: paramiko.SFTPClient,
-                        p_dirs: list[str]):
+              sftp: paramiko.SFTPClient,
+              p_dirs: list[str]):
     # find corresponding
     matched_p_dir = None
     for p_dir in p_dirs:
@@ -181,42 +179,6 @@ def fetch_xml(image_uuid: str, uuid_mappings: dict[str, dict[str, str]],
     if zip_file:
         return zip_file.open(f"uuid:{image_uuid}.xml", 'r')
     return None
-
-
-def parse_points(input_str: str) -> np.array:
-    return np.array([list(map(int, point.split(','))) for point in input_str.split()])
-
-
-def process_xml_document(image_uuid: str, xml_file: IO[bytes]):
-    def tag(el): return el.tag.split('}', 1)[1] if '}' in el.tag else el.tag
-
-    xml_root = ET.parse(xml_file)
-    page_el = None
-    for child in xml_root.getroot():
-        if tag(child) == 'Page':
-            page_el = child
-            break
-    if not page_el:
-        raise NotImplemented
-
-    width = page_el.get('imageWidth')
-    height = page_el.get('imageHeight')
-
-    regions = [parse_points(text[0].get('points')) for text in page_el]
-
-    fig, ax = plt.subplots()
-
-
-    patches_list = []
-    for region_coords in regions:
-        polygon = patches.Polygon(region_coords, closed=True, fill=False, edgecolor='red', linewidth=1)
-        ax.add_patch(polygon)
-
-    plt.gca().set_aspect('equal', adjustable='box')
-    ax.set_xlim(0, int(width))
-    ax.set_ylim(0, int(height))
-    plt.show()
-
 
 def fetch_zip_file(sftp: paramiko.SFTPClient,
                    p_dir: str,
