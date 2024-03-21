@@ -1,27 +1,27 @@
 import numpy as np
 from urllib.parse import unquote
 
-def box(value: dict[str, object], org_w: int, org_h: int) -> np.array:
+
+def box(value: dict[str, object], org_w: int, org_h: int) -> tuple[tuple[float, float, float, float], np.array]:
     x = float(value['x']) / 100 * org_w
     y = float(value['y']) / 100 * org_h
     w = float(value['width']) / 100 * org_w
     h = float(value['height']) / 100 * org_h
-    return np.array([[x, y], [x + w, y], [x + w, y + h], [x, y + h]])
+    return (x, y, w, h), np.array([[x, y], [x + w, y], [x + w, y + h], [x, y + h]])
 
 
 class Annotation:
     def __init__(self, ann_id: int, coords: dict[str, object], annotation_type: str, org_w: str, org_h: str):
         self.id = ann_id
-        self.coords = box(coords, int(org_w), int(org_h))
+        (self.x, self.y, self.w, self.h), self.coords = box(coords, int(org_w), int(org_h))
         self.is_text: bool = annotation_type != "obrázek"
+        self.text_line = None
 
 
 class Document:
     def __init__(self, image_uuid: str, annotations: dict[Annotation, list[Annotation]]):
         self.annotations = annotations
         self.image_uuid = image_uuid
-
-
 
 
 def parse_input_json(in_dict) -> dict[str, Document]:

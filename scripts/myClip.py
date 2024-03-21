@@ -2,11 +2,13 @@ import torch
 import open_clip 
 from PIL import Image
 
-model, _, preprocess = open_clip.create_model_and_transforms('ViT-L-14', pretrained='laion400m_e32')
-tokenizer = open_clip.get_tokenizer('ViT-L-14')
+model, _, preprocess = open_clip.create_model_and_transforms('ViT-g-14', pretrained='laion2b_s34b_b88k')
+tokenizer = open_clip.get_tokenizer('ViT-g-14')
 
-image = preprocess(Image.open("/home/anakin/skola/leto/KNN/image.png")).unsqueeze(0)
-text = tokenizer(["andrej babis", "cock", "car"])
+image = preprocess(Image.open("C:/Users/dadno/PycharmProjects/pythonProject1/res/img.png")).unsqueeze(0)
+text = tokenizer(["seller", "carpenter", "gangster", "prime minister"])
+
+
 
 with torch.no_grad(), torch.cuda.amp.autocast():
     image_features = model.encode_image(image)

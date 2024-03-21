@@ -5,8 +5,7 @@ import numpy as np
 import xml.etree.ElementTree as ET
 from matplotlib import pyplot as plt
 import matplotlib.patches as patches
-import matplotlib
-import annotation
+import translator
 
 from scripts import annotation
 
@@ -19,12 +18,15 @@ class TextLine:
         self.baseline = parse_points(baseline)
         self.conf = conf
         self.text = text
+        self.en_text = translator.translate(text)
+        self.text_region = None
 
 
 class TextRegion:
     def __init__(self, coords, text_lines):
         self.coords = parse_points(coords)
         self.text_lines = text_lines
+        self.page = None
 
     def __iter__(self) -> Iterator[TextLine]:
         return iter(self.text_lines)
@@ -65,7 +67,6 @@ def plot_text_regions(xml_page: Page, documents: dict[str, annotation.Document],
         for text_ann in texts:
             polygon = patches.Polygon(text_ann.coords, closed=True, fill=False, edgecolor=col, linewidth=1)
             ax.add_patch(polygon)
-
 
     plt.gca().set_aspect('equal', adjustable='box')
     ax.set_xlim(0, xml_page.width)
@@ -125,9 +126,16 @@ def parse_xml_document(xml_file: IO[bytes]) -> Page:
                         for unicode_el in els:
                             text = unicode_el.text
                 text_lines.append(TextLine(index, custom_heights, text_line_coords, baseline, conf, text))
-        text_regions.append(TextRegion(coords, text_lines))
+        text_region = TextRegion(coords, text_lines)
+
+        text_regions.append(text_region)
+        for text_line in text_region:
+            text_line.text_region = text_region
     # create the top-level element representing whole xml page and return
-    return Page(uuid, width, height, text_regions)
+    page = Page(uuid, width, height, text_regions)
+    for text_region in page:
+        text_region.page = page
+    return page
 
 
 
