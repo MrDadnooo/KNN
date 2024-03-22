@@ -4,9 +4,10 @@ import paramiko
 import credentials as creds
 import os
 from os import path
-from multiprocessing import Process, Manager, Lock
+import threading
 import pickle
 import zipfile
+import queue
 
 HOSTNAME = 'merlin.fit.vutbr.cz'
 PORT = 22
@@ -33,10 +34,14 @@ class DataManager:
                  host_name: str,
                  port: int):
         print('Initializing the data manager')
+        ssh_client: paramiko.SSHClient = paramiko.SSHClient()
+        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh_client.connect(HOSTNAME, PORT, creds.USERNAME, creds.PASSWORD)
         transport: paramiko.Transport = paramiko.Transport((host_name, port))
         transport.connect(None, creds.USERNAME, creds.PASSWORD)
 
         self.sftp: paramiko.SFTPClient = paramiko.SFTPClient.from_transport(transport)
+        self.ssh_client : paramiko.SSHClient = ssh_client
         self.remote_path = remote_path
         self.local_path = local_path
         self.cache_path = cache_path
@@ -46,34 +51,81 @@ class DataManager:
         self.cached_zip_files: dict[tuple[str, str, str], zipfile.ZipFile] = {}
         self.lru_zip_keys: list[tuple[str, str, str]] = []
         self.zip_cache_size = 100
+        self.stop_event = threading.Event()
         print('Data manager initialization finished')
 
     def __find_zip_file_idx(self, image_uuid: str) -> (str, str):
-        for p_dir in self.p_dirs:
-            if p_dir_mapping := self.loaded_uuid_mappings.get(p_dir):
-                if zip_file_idx := p_dir_mapping.get(image_uuid):
-                    return p_dir, zip_file_idx
-            # try to load uuid mapping into memory
-            else:
-                with open(path.join(CACHE_PATH, p_dir, IMAGE_ZIP_MAPPING), 'rb') as f:
-                    print(f'loading {p_dir} mapping from disk')
-                    uuid_zip_dict: dict[str, str] = pickle.load(f)
-                    self.loaded_uuid_mappings[p_dir] = uuid_zip_dict
-                    if image_uuid in uuid_zip_dict:
-                        return p_dir, uuid_zip_dict[image_uuid]
+        try:
+            for p_dir in self.p_dirs:
+                if p_dir_mapping := self.loaded_uuid_mappings.get(p_dir):
+                    if zip_file_idx := p_dir_mapping.get(image_uuid):
+                        return p_dir, zip_file_idx
+                # try to load uuid mapping into memory
+                else:
+                    with open(path.join(CACHE_PATH, p_dir, IMAGE_ZIP_MAPPING), 'rb') as f:
+                        print(f'loading {p_dir} mapping from disk')
+                        uuid_zip_dict: dict[str, str] = pickle.load(f)
+                        self.loaded_uuid_mappings[p_dir] = uuid_zip_dict
+                        if image_uuid in uuid_zip_dict:
+                            return p_dir, uuid_zip_dict[image_uuid]
+        except FileNotFoundError:
+            return self.__download_uuid_mapping(image_uuid)
         return self.__download_uuid_mapping(image_uuid)
+    
+    def __find_zip_file_idx_thread(self, p_dir: str, image_uuid: str, result_queue: queue.Queue) -> None:
+        if self.stop_event.is_set():
+            return
+
+        grep_command = f"grep -r {image_uuid} {self.remote_path}/{p_dir}/splits/*"
+        stdin, stdout, stderr = self.ssh_client.exec_command(grep_command)
+        output = stdout.read().decode()
+        if output:
+            # Set the event to stop other threads right after finding the first match
+            self.stop_event.set()
+
+            grep_command_2 = f"grep -n {output.split(':')[0][-9:]} {self.remote_path}/{p_dir}/part_files.txt"
+            stdin, stdout, stderr = self.ssh_client.exec_command(grep_command_2)
+            output = stdout.read().decode()
+            if output:
+                # Use a tuple for putting multiple items in the queue
+                result_queue.put((output.split(':')[0], p_dir))
 
     def __download_uuid_mapping(self, image_uuid: str) -> (str, str):
-        # TODO jakub
-        """
-        implement a method to download the particular uuid mapping
-        after download update the IN-MEMORY cache: self.loaded_uuid_mappings
-        then set some flag that caches has been changed
-        and add a mechanism to the DataManager to save all modified caches after halting
-        :param image_uuid: uuid of the input image annotation
-        :return: tuple of the processing dir name and a found zip file idx
-        """
-        return None, None
+        result_queue = queue.Queue()
+        threads = []
+        for p_dir in self.p_dirs:
+            if not self.stop_event.is_set():  # Check before starting new threads
+                t = threading.Thread(target=self.__find_zip_file_idx_thread, args=(p_dir, image_uuid, result_queue))
+                threads.append(t)
+                t.start()
+
+        for t in threads:
+            t.join()
+
+
+        while not result_queue.empty():
+            val, dir = result_queue.get()
+        print( val ,dir)
+        
+        # check if file exists
+        if not path.isfile(f'{self.local_path}/{dir}'):
+            # create directory
+            os.makedirs(f'{self.local_path}/{dir}', exist_ok=True)
+            # create dictionary
+            uuid_zip_dict = {image_uuid: int(val)}
+            # save dictionary to file
+            with open(f'{self.local_path}/{dir}/{IMAGE_ZIP_MAPPING}', 'wb') as f:
+                pickle.dump(uuid_zip_dict, f)
+        else:
+            # update dictionary
+            with open(f'{self.local_path}/{dir}/{IMAGE_ZIP_MAPPING}', 'rb') as f:
+                uuid_zip_dict = pickle.load(f)
+                uuid_zip_dict[image_uuid] = int(val)
+            # save dictionary to file
+            with open(f'{self.local_path}/{dir}/{IMAGE_ZIP_MAPPING}', 'wb') as f:
+                pickle.dump(uuid_zip_dict, f)  
+        
+        return (dir, val)
 
     def __fetch_zip_file(self, p_dir: str, zip_file_idx: str, image_uuid: str, file_type: str) -> zipfile.ZipFile | None:
         os.makedirs(path.join(self.cache_path, p_dir, 'zips', file_type), exist_ok=True)
@@ -145,84 +197,6 @@ dataManager = DataManager(
     HOSTNAME,
     PORT
 )
-
-def create_uuid_zip_map(todo_list: list[str], folder_name: str, exists: bool) -> None:
-    """Processing folders with info about images and their zip files"""
-    print(f"Processing folder {folder_name}")
-
-    ssh_client: paramiko.SSHClient = paramiko.SSHClient()
-    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh_client.connect(HOSTNAME, PORT, creds.USERNAME, creds.PASSWORD)
-
-    if len(todo_list) == 0:
-        ssh_client.close()
-        return
-
-    uuid_zip_dict: dict[str, int] = {}
-
-    for image_uuid in todo_list[:]:
-        grep_command_1: str = f"grep {image_uuid} {REMOTE_PATH}/{folder_name}/splits/*"
-
-        stdin, stdout, stderr = ssh_client.exec_command(grep_command_1)
-        output = stdout.read().decode()
-        if output:
-            grep_command_2: str = f"grep -n {REMOTE_PATH}/{folder_name}/splits/{output.split(':')[0][-9:]} {REMOTE_PATH}/{folder_name}/part_files.txt"
-
-            stdin, stdout, stderr = ssh_client.exec_command(grep_command_2)
-            output: str = stdout.read().decode()
-            if output:
-                print(f'uuid: {image_uuid} found in {folder_name}')
-                uuid_zip_dict[image_uuid] = int(output.split(':')[0])
-
-    ssh_client.close()
-
-    if exists:
-        with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'rb') as f:
-            old_uuid_zip_dict: dict[str, str] = pickle.load(f)
-            old_uuid_zip_dict.update(uuid_zip_dict)
-            with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'wb') as f:
-                pickle.dump(old_uuid_zip_dict, f)
-    else:
-        with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'wb') as f:
-            pickle.dump(uuid_zip_dict, f)
-
-
-def create_uuid_zip_map_worker(folder_names: list[str]):
-    """Create a process for each folder to get the relevant data"""
-
-    todo_list: list[str] = []  # [uuid for uuid in get_image_uuids_from_json()]
-    exists: bool = True
-
-    for folder_name in folder_names:
-        if not path.isdir(path.join(CACHE_PATH, folder_name)):
-            os.mkdir(path.join(CACHE_PATH, folder_name))
-            exists = False
-
-            # if pkl file exists, check ids which are in file and remove them from todo list
-        if path.isfile(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING)):
-            exists = True
-            with open(path.join(CACHE_PATH, folder_name, IMAGE_ZIP_MAPPING), 'rb') as f:
-                uuid_zip_dict: dict[str, str] = pickle.load(f)
-                for uuid in uuid_zip_dict:
-                    if uuid in todo_list:
-                        todo_list.remove(uuid)
-
-    with Manager() as manager:
-
-        print(f'Number of images to process: {len(todo_list)}')
-        processes = []
-        for folder_name in folder_names:
-            # check if folder name exists in cache
-            p = Process(target=create_uuid_zip_map, args=(
-                todo_list, folder_name, exists))
-            processes.append(p)
-            p.start()
-
-        for p in processes:
-            p.join()
-
-    print('All processes finished')
-
 
 def create_image_to_zip_mapping_local(p_dirs: list[str]) -> dict[str, dict[str, int | Any] | Any]:
     processing_dict = {}

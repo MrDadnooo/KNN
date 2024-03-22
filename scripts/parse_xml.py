@@ -7,7 +7,7 @@ from matplotlib import pyplot as plt
 import matplotlib.patches as patches
 import translator
 
-from scripts import annotation
+import annotation
 
 
 class TextLine:
