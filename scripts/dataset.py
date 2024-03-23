@@ -6,7 +6,12 @@ import numpy as np
 from download import dataManager
 from parse_xml import parse_points
 
+
 class Dataset:
+    def __init__(self):
+        ...
+
+class DataPoint:
     def __init__(self):
         ...
 
@@ -22,15 +27,7 @@ def pair_text_data_and_annotations(ocr_data: ocr.Page, ann_el: annotation.Docume
                     intersect = ocr_poly.intersection(ann_poly)
                     if intersect.area > curr_best[0]:
                         curr_best = (intersect.area, text_line)
-            text_ann.text_line = curr_best[1]
-
-
-class ImageLabelData:
-    def __init__(self, label: str, idx: int, coords: list[int]):
-        self.label = label
-        self.idx = idx
-        x1, y1, x2, y2 = coords
-        self.coords = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]])
+            text_ann.ocr_ref = curr_best[1]
 
 
 def pair_image_annotations_with_labels(ann_el: annotation.Document):
@@ -43,7 +40,7 @@ def pair_image_annotations_with_labels(ann_el: annotation.Document):
             label_idx_mapping += 1
         else:
             label_idx_mapping[label] = 0
-        image_labels.append(ImageLabelData(label, label_idx_mapping[label], list(map(int, coords))))
+        image_labels.append(annotation.ImageLabelData(label, label_idx_mapping[label], list(map(int, coords))))
     for image_ann, text_ann in ann_el.annotations.items():
         curr_best = (0.0, None)
         for image_label in image_labels:
@@ -52,4 +49,5 @@ def pair_image_annotations_with_labels(ann_el: annotation.Document):
             intersect = ann_poly.intersection(img_label_poly)
             if intersect.area > curr_best[0]:
                 curr_best = (intersect.area, image_label)
-        image_ann.image_ocr = curr_best[1]
+        image_ann.ocr_ref = curr_best[1]
+

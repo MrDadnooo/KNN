@@ -8,11 +8,11 @@ import threading
 import pickle
 import zipfile
 import queue
+from annotation import ImageLabelData
 
 HOSTNAME = 'merlin.fit.vutbr.cz'
 PORT = 22
 
-LOCAL_PATH = '../res/downloads/'
 REMOTE_PATH = '/mnt/matylda1/ikiss/pero/experiments/digiknihovny'
 CACHE_PATH = '../res/cache'
 IMAGE_ZIP_MAPPING = 'image_zip_mapping'
@@ -28,7 +28,6 @@ def processing_folder_generator(sftp: paramiko.SFTPClient, remote_path: str) -> 
 class DataManager:
     def __init__(self,
                  remote_path: str,
-                 local_path: str,
                  cache_path: str,
                  annotation_path: str,
                  host_name: str,
@@ -41,9 +40,8 @@ class DataManager:
         transport.connect(None, creds.USERNAME, creds.PASSWORD)
 
         self.sftp: paramiko.SFTPClient = paramiko.SFTPClient.from_transport(transport)
-        self.ssh_client : paramiko.SSHClient = ssh_client
+        self.ssh_client: paramiko.SSHClient = ssh_client
         self.remote_path = remote_path
-        self.local_path = local_path
         self.cache_path = cache_path
         self.annotation_path = annotation_path
         self.p_dirs: tuple[str] = tuple(processing_folder_generator(self.sftp, self.remote_path))
@@ -55,21 +53,20 @@ class DataManager:
         print('Data manager initialization finished')
 
     def __find_zip_file_idx(self, image_uuid: str) -> (str, str):
-        try:
-            for p_dir in self.p_dirs:
-                if p_dir_mapping := self.loaded_uuid_mappings.get(p_dir):
-                    if zip_file_idx := p_dir_mapping.get(image_uuid):
-                        return p_dir, zip_file_idx
-                # try to load uuid mapping into memory
-                else:
-                    with open(path.join(CACHE_PATH, p_dir, IMAGE_ZIP_MAPPING), 'rb') as f:
-                        print(f'loading {p_dir} mapping from disk')
-                        uuid_zip_dict: dict[str, str] = pickle.load(f)
-                        self.loaded_uuid_mappings[p_dir] = uuid_zip_dict
-                        if image_uuid in uuid_zip_dict:
-                            return p_dir, uuid_zip_dict[image_uuid]
-        except FileNotFoundError:
-            return self.__download_uuid_mapping(image_uuid)
+        for p_dir in self.p_dirs:
+            mapping_path = path.join(CACHE_PATH, p_dir, IMAGE_ZIP_MAPPING)
+            if p_dir_mapping := self.loaded_uuid_mappings.get(p_dir):
+                if zip_file_idx := p_dir_mapping.get(image_uuid):
+                    return p_dir, zip_file_idx
+            # try to load uuid mapping into memory
+            elif path.isfile(mapping_path):
+                with open(mapping_path, 'rb') as f:
+                    print(f'loading {p_dir} mapping from disk')
+                    uuid_zip_dict: dict[str, str] = pickle.load(f)
+                    self.loaded_uuid_mappings[p_dir] = uuid_zip_dict
+                    if image_uuid in uuid_zip_dict:
+                        return p_dir, uuid_zip_dict[image_uuid]
+        # mapping entry does not exist locally
         return self.__download_uuid_mapping(image_uuid)
     
     def __find_zip_file_idx_thread(self, p_dir: str, image_uuid: str, result_queue: queue.Queue) -> None:
@@ -101,31 +98,30 @@ class DataManager:
 
         for t in threads:
             t.join()
-
-
+        val = None
+        _dir = None
         while not result_queue.empty():
-            val, dir = result_queue.get()
-        print( val ,dir)
+            val, _dir = result_queue.get()
         
         # check if file exists
-        if not path.isfile(f'{self.local_path}/{dir}'):
+        if not path.isfile(f'{self.cache_path}/{_dir}'):
             # create directory
-            os.makedirs(f'{self.local_path}/{dir}', exist_ok=True)
+            os.makedirs(f'{self.cache_path}/{_dir}', exist_ok=True)
             # create dictionary
             uuid_zip_dict = {image_uuid: int(val)}
             # save dictionary to file
-            with open(f'{self.local_path}/{dir}/{IMAGE_ZIP_MAPPING}', 'wb') as f:
+            with open(f'{self.cache_path}/{_dir}/{IMAGE_ZIP_MAPPING}', 'wb') as f:
                 pickle.dump(uuid_zip_dict, f)
         else:
             # update dictionary
-            with open(f'{self.local_path}/{dir}/{IMAGE_ZIP_MAPPING}', 'rb') as f:
+            with open(f'{self.cache_path}/{_dir}/{IMAGE_ZIP_MAPPING}', 'rb') as f:
                 uuid_zip_dict = pickle.load(f)
                 uuid_zip_dict[image_uuid] = int(val)
             # save dictionary to file
-            with open(f'{self.local_path}/{dir}/{IMAGE_ZIP_MAPPING}', 'wb') as f:
+            with open(f'{self.cache_path}/{_dir}/{IMAGE_ZIP_MAPPING}', 'wb') as f:
                 pickle.dump(uuid_zip_dict, f)  
         
-        return (dir, val)
+        return _dir, val
 
     def __fetch_zip_file(self, p_dir: str, zip_file_idx: str, image_uuid: str, file_type: str) -> zipfile.ZipFile | None:
         os.makedirs(path.join(self.cache_path, p_dir, 'zips', file_type), exist_ok=True)
@@ -173,11 +169,12 @@ class DataManager:
             return zip_file.open(f"uuid:{image_uuid}.xml", 'r')
         return None
 
-    def get_image_crops(self, image_uuid: str, label_suffix: str) -> IO[bytes] | None:
+    def get_image_crops(self, image_uuid: str, image_label: ImageLabelData) -> IO[bytes] | None:
         (p_dir, zip_file_idx) = self.__find_zip_file_idx(image_uuid)
         zip_file: zipfile.ZipFile = self.__fetch_zip_file(p_dir, zip_file_idx, image_uuid, 'crops')
         if zip_file:
-            return zip_file.open(f"uuid:{image_uuid}.png", 'r')
+            img_name: str = f"uuid:{image_uuid}__{image_label.label}_{image_label.idx}.jpg"
+            return zip_file.open(img_name, 'r')
         return None
 
     def get_image_labels(self, image_uuid: str) -> IO[bytes] | None:
@@ -191,12 +188,12 @@ class DataManager:
 # create a global data manager
 dataManager = DataManager(
     REMOTE_PATH,
-    LOCAL_PATH,
     CACHE_PATH,
     JSON_PATH,
     HOSTNAME,
     PORT
 )
+
 
 def create_image_to_zip_mapping_local(p_dirs: list[str]) -> dict[str, dict[str, int | Any] | Any]:
     processing_dict = {}

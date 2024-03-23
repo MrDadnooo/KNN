@@ -1,13 +1,8 @@
 from typing import IO, Iterator
 
-import paramiko
 import numpy as np
-import xml.etree.ElementTree as ET
-from matplotlib import pyplot as plt
-import matplotlib.patches as patches
+import xml.etree.ElementTree as et
 import translator
-
-import annotation
 
 
 class TextLine:
@@ -43,37 +38,6 @@ class Page:
         return iter(self.text_regions)
 
 
-def plot_text_regions(xml_page: Page, documents: dict[str, annotation.Document], image_uuid: str) -> None:
-    fig, ax = plt.subplots()
-
-    ocr_col = np.random.rand(3, )
-    bl_col = np.random.rand(3, )
-    line_col = np.random.rand(3, )
-    for text_region in xml_page:
-        polygon = patches.Polygon(text_region.coords, closed=True, fill=False, edgecolor=ocr_col, linewidth=1)
-        ax.add_patch(polygon)
-        for text_line in text_region:
-            polygon = patches.Polygon(text_line.baseline, closed=False, fill=False, edgecolor=bl_col, linewidth=1)
-            ax.add_patch(polygon)
-            polygon = patches.Polygon(text_line.coords, closed=True, fill=False, edgecolor=line_col, linewidth=1)
-            ax.add_patch(polygon)
-
-    doc = documents[image_uuid]
-    for im, texts in doc.annotations.items():
-        col = np.random.rand(3, )
-        print(im.coords)
-        polygon = patches.Polygon(im.coords, closed=True, fill=False, edgecolor=col, linewidth=1)
-        ax.add_patch(polygon)
-        for text_ann in texts:
-            polygon = patches.Polygon(text_ann.coords, closed=True, fill=False, edgecolor=col, linewidth=1)
-            ax.add_patch(polygon)
-
-    plt.gca().set_aspect('equal', adjustable='box')
-    ax.set_xlim(0, xml_page.width)
-    ax.set_ylim(0, xml_page.height)
-    plt.show()
-
-
 def parse_points(input_str: str) -> np.array:
     """
     Convert coordination like string to a 2D numpy array of x,y coordinates
@@ -87,7 +51,7 @@ def parse_xml_document(xml_file: IO[bytes]) -> Page:
     def tag(el): return el.tag.split('}', 1)[1] if '}' in el.tag else el.tag
 
     # convert the XML document to a tree-like structure
-    xml_root = ET.parse(xml_file)
+    xml_root = et.parse(xml_file)
     # find the <Page/> element (that element contains all data we're interested in)
     page_el = None
     for child in xml_root.getroot():

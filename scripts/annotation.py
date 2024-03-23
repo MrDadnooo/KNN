@@ -10,12 +10,24 @@ def box(value: dict[str, object], org_w: int, org_h: int) -> tuple[tuple[float, 
     return (x, y, w, h), np.array([[x, y], [x + w, y], [x + w, y + h], [x, y + h]])
 
 
+class ImageLabelData:
+    def __init__(self, label: str, idx: int, coords: list[int]):
+        self.label = label
+        self.idx = idx
+        x1, y1, x2, y2 = coords
+        self.x = x1
+        self.y = y1
+        self.w = x2 - x1
+        self.h = y2 - y1
+        self.coords = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]])
+
+
 class Annotation:
     def __init__(self, ann_id: int, coords: dict[str, object], annotation_type: str, org_w: str, org_h: str):
+        self.ocr_ref = None
         self.id = ann_id
         (self.x, self.y, self.w, self.h), self.coords = box(coords, int(org_w), int(org_h))
         self.is_text: bool = annotation_type != "obrázek"
-        self.text_line = None
 
 
 class Document:
