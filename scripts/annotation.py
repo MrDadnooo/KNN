@@ -22,21 +22,27 @@ class ImageLabelData:
         self.coords = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]])
 
 
-class Annotation:
-    def __init__(self, ann_id: int, coords: dict[str, object], annotation_type: str, org_w: str, org_h: str):
+class TextAnnotation:
+    def __init__(self, ann_id: int, coords: dict[str, object], org_w: str, org_h: str):
+        self.text_line = None
+        (self.x, self.y, self.w, self.h), self.coords = box(coords, int(org_w), int(org_h))
+        self.image = None
+
+class ImageAnnotation:
+    def __init__(self, ann_id: int, coords: dict[str, object], org_w: str, org_h: str):
         self.ocr_ref = None
         self.id = ann_id
         (self.x, self.y, self.w, self.h), self.coords = box(coords, int(org_w), int(org_h))
-        self.is_text: bool = annotation_type != "obrázek"
+        self.texts = []
 
 
-class Document:
-    def __init__(self, image_uuid: str, annotations: dict[Annotation, list[Annotation]]):
+class AnnotationRecord:
+    def __init__(self, image_uuid: str, annotations: dict[ImageAnnotation, list[TextAnnotation]]):
         self.annotations = annotations
         self.image_uuid = image_uuid
 
 
-def parse_input_json(in_dict) -> dict[str, Document]:
+def parse_input_json(in_dict) -> dict[str, AnnotationRecord]:
     documents = {}
     for el in in_dict:
         annotations = {}
@@ -51,9 +57,14 @@ def parse_input_json(in_dict) -> dict[str, Document]:
                     else:
                         relations[ann_data['to_id']] = [ann_data['from_id']]
                 else:
-                    annotations[ann_data['id']] = \
-                        Annotation(ann_data['id'], ann_data['value'], ann_data['value']['rectanglelabels'][0], \
-                                   ann_data['original_width'], ann_data['original_height'])
+                    annotation_type = ann_data['value']['rectanglelabels'][0]
+                    width = ann_data['original_width']
+                    height = ann_data['original_height']
+                    if annotation_type == "obrázek":
+                        ann_obj = ImageAnnotation(ann_data['id'], ann_data['value'], width, height)
+                    else:
+                        ann_obj = TextAnnotation(ann_data['id'], ann_data['value'], width, height)
+                    annotations[ann_data['id']] = ann_obj
 
         image_uuid = unquote((el['data']['image']).split('/')[-1])[5:-4]
 
@@ -63,18 +74,17 @@ def parse_input_json(in_dict) -> dict[str, Document]:
             im_ann = None
             text_anns = []
             for _, ann in annotations.items():
-                if not ann.is_text:
+                if ann is ImageAnnotation:
                     im_ann = ann
                 else:
                     text_anns.append(ann)
             if im_ann:
-                documents[image_uuid] = Document(image_uuid, {im_ann: text_anns})
+                documents[image_uuid] = AnnotationRecord(image_uuid, {im_ann: text_anns})
         else:
             for ann_id, ann in annotations.items():
                 if text_ann_ids := relations.get(ann_id):
                     documents[image_uuid] = \
-                        Document(image_uuid, {ann: [annotations[text_ann_id] for text_ann_id in text_ann_ids]})
+                        AnnotationRecord(image_uuid, {ann: [annotations[text_ann_id] for text_ann_id in text_ann_ids]})
                 else:
                     continue
     return documents
-

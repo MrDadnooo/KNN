@@ -1,22 +1,95 @@
+from typing import Self
+
+from os import path
+import pickle
 from shapely.geometry import Polygon
 import parse_xml as ocr
+from annotation import ImageAnnotation, TextAnnotation, AnnotationRecord, ImageLabelData
 import annotation
-import numpy as np
-
 from download import dataManager
-from parse_xml import parse_points
+import json
+from datetime import datetime
+
+class DataPoint:
+    def __init__(self, text_annotations: list[TextAnnotation],
+                 img_annotations: list[ImageAnnotation],
+                 text_lines: list[ocr.TextLine],
+                 text_regions: list[ocr.TextRegion],
+                 page: ocr.Page
+                 ):
+        self.text_annotations = text_annotations
+        self.img_annotations = img_annotations
+        self.text_lines = text_lines
+        self.text_regions = text_regions
+        self.page = page
+
+
+def create_from_raw_data(image_uuid: str, ann_rec: AnnotationRecord) -> None | DataPoint:
+    xml_file = dataManager.get_xml_file(image_uuid)
+    if xml_file:
+        ocr_page = ocr.parse_xml_document(xml_file)
+        pair_text_data_and_annotations(ocr_page, ann_rec)
+        pair_image_annotations_with_labels(ann_rec)
+
+        text_anns = []
+        for im, text_ann_list in ann_rec.annotations.items():
+            for text in text_ann_list:
+                text_anns.append(text_anns)
+                text.image = im
+            im.texts = text_ann_list
+
+        return DataPoint(
+            text_anns,
+            list(ann_rec.annotations.keys()),
+            [line for region in ocr_page.text_regions for line in region.text_lines],
+            [region for region in ocr_page.text_regions],
+            ocr_page
+        )
+    return None
 
 
 class Dataset:
-    def __init__(self):
-        ...
+    def __init__(self, data_points: list[DataPoint]):
+        self.data_points = data_points
 
-class DataPoint:
-    def __init__(self):
-        ...
+    def save(self):
+        cache_path = dataManager.cache_path
+        curr_datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        ds_path = path.join(cache_path, 'datasets', f"dataset_{len(self.data_points)}_{curr_datetime_str}")
+        with open(ds_path, 'wb') as ds_file:
+            pickle.dump(self, ds_file)
 
 
-def pair_text_data_and_annotations(ocr_data: ocr.Page, ann_el: annotation.Document) -> None:
+
+def load_data_set(self, ds_path: str) -> None | Dataset:
+    if path.isfile(ds_path):
+        with open(ds_path, 'rb') as ds_file:
+            dataset = pickle.load(ds_file)
+            return dataset
+    else:
+        return None
+
+
+def create_data_set(json_path: str) -> None | Dataset:
+    print(f"Creating a data set from annotation file at: {json_path}")
+    with open(json_path, 'r', encoding='utf-8') as f:
+        json_data = json.load(f)
+        annotation_records = annotation.parse_input_json(json_data)
+
+        print(f"Annotation file successfully parsed. Found {len(annotation_records)} annotation records.")
+        print("Starting a data point creation process")
+        data_points = []
+        for image_uuid, ann_rec in annotation_records.items():
+            data_point = create_from_raw_data(image_uuid, ann_rec)
+            if data_point:
+                print(f'successfully created a data point for uuid: {image_uuid}')
+                data_points.append(data_point)
+            else:
+                print(f"Could not fetch a xml ocr data file for uuid: {image_uuid}")
+        return Dataset(data_points)
+
+
+def pair_text_data_and_annotations(ocr_data: ocr.Page, ann_el: AnnotationRecord) -> None:
     for image, text_anns in ann_el.annotations.items():
         for text_ann in text_anns:
             curr_best = (0.0, None)
@@ -30,7 +103,7 @@ def pair_text_data_and_annotations(ocr_data: ocr.Page, ann_el: annotation.Docume
             text_ann.ocr_ref = curr_best[1]
 
 
-def pair_image_annotations_with_labels(ann_el: annotation.Document):
+def pair_image_annotations_with_labels(ann_el: AnnotationRecord):
     image_labels_file = dataManager.get_image_labels(ann_el.image_uuid)
     label_idx_mapping = {}
     image_labels = []
@@ -40,7 +113,7 @@ def pair_image_annotations_with_labels(ann_el: annotation.Document):
             label_idx_mapping += 1
         else:
             label_idx_mapping[label] = 0
-        image_labels.append(annotation.ImageLabelData(label, label_idx_mapping[label], list(map(int, coords))))
+        image_labels.append(ImageLabelData(label, label_idx_mapping[label], list(map(int, coords))))
     for image_ann, text_ann in ann_el.annotations.items():
         curr_best = (0.0, None)
         for image_label in image_labels:

@@ -42,9 +42,9 @@ def main():
             annotation_docs = annotation.parse_input_json(in_dict=json_data)
             ocr_data = parse_xml_document(xml_file)
 
-            ann_el = annotation_docs[image_uuid]
-            dataset.pair_text_data_and_annotations(ocr_data, ann_el)
-            dataset.pair_image_annotations_with_labels(ann_el)
+            annotation_record = annotation_docs[image_uuid]
+            dataset.pair_text_data_and_annotations(ocr_data, annotation_record)
+            dataset.pair_image_annotations_with_labels(annotation_record)
 
             plot_text_regions(ocr_data, annotation_docs, image_uuid)
 

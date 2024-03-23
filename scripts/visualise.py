@@ -8,7 +8,7 @@ import annotation
 from parse_xml import Page
 from PIL import Image
 
-def plot_text_regions(xml_page: Page, documents: dict[str, annotation.Document], image_uuid: str) -> None:
+def plot_text_regions(xml_page: Page, documents: dict[str, annotation.AnnotationRecord], image_uuid: str) -> None:
     fig, ax = plt.subplots()
 
     ocr_col = np.random.rand(3, )
