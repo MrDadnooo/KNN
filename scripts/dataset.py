@@ -1,4 +1,5 @@
 from os import path
+from os import mkdir
 import pickle
 from shapely.geometry import Polygon
 import parse_xml as ocr
@@ -53,10 +54,14 @@ class Dataset:
 
     def save(self):
         cache_path = dataManager.cache_path
+
+        if not path.isdir(f'{cache_path}/datasets'):
+            mkdir(f'{cache_path}/datasets')
+
         curr_datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         ds_path = path.join(cache_path, 'datasets', f"dataset_{len(self.data_points)}_{curr_datetime_str}")
         with open(ds_path, 'wb') as ds_file:
-            pickle.dump(self, ds_file)
+            pickle.dump(self.data_points, ds_file)
 
 
 def load_data_set(ds_path: str) -> None | Dataset:
@@ -110,7 +115,7 @@ def pair_image_annotations_with_labels(ann_el: AnnotationRecord):
     for line in image_labels_file:
         label, *coords = line.decode('utf-8').strip().split(" ")
         if label in label_idx_mapping:
-            label_idx_mapping += 1
+            label_idx_mapping[label] += 1
         else:
             label_idx_mapping[label] = 0
         image_labels.append(ImageLabelData(label, label_idx_mapping[label], list(map(int, coords))))

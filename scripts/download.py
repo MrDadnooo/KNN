@@ -68,41 +68,22 @@ class DataManager:
                         return p_dir, uuid_zip_dict[image_uuid]
         # mapping entry does not exist locally
         return self.__download_uuid_mapping(image_uuid)
-    
-    def __find_zip_file_idx_thread(self, p_dir: str, image_uuid: str, result_queue: queue.Queue) -> None:
-        if self.stop_event.is_set():
-            return
-
-        grep_command = f"grep -r {image_uuid} {self.remote_path}/{p_dir}/splits/*"
-        stdin, stdout, stderr = self.ssh_client.exec_command(grep_command)
-        output = stdout.read().decode()
-        if output:
-            # Set the event to stop other threads right after finding the first match
-            self.stop_event.set()
-
-            grep_command_2 = f"grep -n {output.split(':')[0][-9:]} {self.remote_path}/{p_dir}/part_files.txt"
-            stdin, stdout, stderr = self.ssh_client.exec_command(grep_command_2)
-            output = stdout.read().decode()
-            if output:
-                # Use a tuple for putting multiple items in the queue
-                result_queue.put((output.split(':')[0], p_dir))
 
     def __download_uuid_mapping(self, image_uuid: str) -> (str, str):
-        result_queue = queue.Queue()
-        threads = []
-        for p_dir in self.p_dirs:
-            if not self.stop_event.is_set():  # Check before starting new threads
-                t = threading.Thread(target=self.__find_zip_file_idx_thread, args=(p_dir, image_uuid, result_queue))
-                threads.append(t)
-                t.start()
 
-        for t in threads:
-            t.join()
-        val = None
-        _dir = None
-        while not result_queue.empty():
-            val, _dir = result_queue.get()
-        
+        for p_dir in self.p_dirs:
+            grep_command : str = f"grep -r {image_uuid} {self.remote_path}/{p_dir}/splits/"
+            stdin, stdout, stderr = self.ssh_client.exec_command(grep_command)
+            output = stdout.read().decode()
+            if output:
+                grep_command_2 : str = f"grep -n {output.split(':')[0][-9:]} {self.remote_path}/{p_dir}/part_files.txt"
+                stdin, stdout, stderr = self.ssh_client.exec_command(grep_command_2)
+                output = stdout.read().decode()
+                if output:
+                    val = output.split(':')[0]
+                    _dir = p_dir
+                    break
+
         # check if file exists
         if not path.isfile(f'{self.cache_path}/{_dir}'):
             # create directory
