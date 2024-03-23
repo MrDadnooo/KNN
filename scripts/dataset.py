@@ -1,5 +1,3 @@
-from typing import Self
-
 from os import path
 import pickle
 from shapely.geometry import Polygon
@@ -9,6 +7,7 @@ import annotation
 from download import dataManager
 import json
 from datetime import datetime
+
 
 class DataPoint:
     def __init__(self, text_annotations: list[TextAnnotation],
@@ -60,8 +59,7 @@ class Dataset:
             pickle.dump(self, ds_file)
 
 
-
-def load_data_set(self, ds_path: str) -> None | Dataset:
+def load_data_set(ds_path: str) -> None | Dataset:
     if path.isfile(ds_path):
         with open(ds_path, 'rb') as ds_file:
             dataset = pickle.load(ds_file)
@@ -70,7 +68,7 @@ def load_data_set(self, ds_path: str) -> None | Dataset:
         return None
 
 
-def create_data_set(json_path: str) -> None | Dataset:
+def create_data_set(json_path: str, limit: int = None) -> None | Dataset:
     print(f"Creating a data set from annotation file at: {json_path}")
     with open(json_path, 'r', encoding='utf-8') as f:
         json_data = json.load(f)
@@ -79,10 +77,12 @@ def create_data_set(json_path: str) -> None | Dataset:
         print(f"Annotation file successfully parsed. Found {len(annotation_records)} annotation records.")
         print("Starting a data point creation process")
         data_points = []
-        for image_uuid, ann_rec in annotation_records.items():
+        for idx, (image_uuid, ann_rec) in enumerate(annotation_records.items()):
+            if limit and idx >= limit:
+                break
             data_point = create_from_raw_data(image_uuid, ann_rec)
             if data_point:
-                print(f'successfully created a data point for uuid: {image_uuid}')
+                print(f'[{idx}] successfully created a data point for uuid: {image_uuid}')
                 data_points.append(data_point)
             else:
                 print(f"Could not fetch a xml ocr data file for uuid: {image_uuid}")
@@ -123,4 +123,3 @@ def pair_image_annotations_with_labels(ann_el: AnnotationRecord):
             if intersect.area > curr_best[0]:
                 curr_best = (intersect.area, image_label)
         image_ann.ocr_ref = curr_best[1]
-
