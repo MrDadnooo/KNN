@@ -8,8 +8,6 @@ tokenizer = open_clip.get_tokenizer('ViT-g-14')
 image = preprocess(Image.open("C:/Users/dadno/PycharmProjects/pythonProject1/res/img.png")).unsqueeze(0)
 text = tokenizer(["seller", "carpenter", "gangster", "prime minister"])
 
-
-
 with torch.no_grad(), torch.cuda.amp.autocast():
     image_features = model.encode_image(image)
     text_features = model.encode_text(text)

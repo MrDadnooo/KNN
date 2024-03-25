@@ -1,6 +1,6 @@
 import numpy as np
 from urllib.parse import unquote
-
+from parse_xml import TextLine
 
 def box(value: dict[str, object], org_w: int, org_h: int) -> tuple[tuple[float, float, float, float], np.array]:
     x = float(value['x']) / 100 * org_w
@@ -24,7 +24,7 @@ class ImageLabelData:
 
 class TextAnnotation:
     def __init__(self, ann_id: int, coords: dict[str, object], org_w: str, org_h: str):
-        self.text_line = None
+        self.text_line: None | TextLine = None
         (self.x, self.y, self.w, self.h), self.coords = box(coords, int(org_w), int(org_h))
         self.image = None
 

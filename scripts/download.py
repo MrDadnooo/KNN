@@ -72,7 +72,7 @@ class DataManager:
     def __download_uuid_mapping(self, image_uuid: str) -> (str, str):
 
         for p_dir in self.p_dirs:
-            grep_command : str = f"grep -r {image_uuid} {self.remote_path}/{p_dir}/splits/"
+            grep_command: str = f"grep -r {image_uuid} {self.remote_path}/{p_dir}/splits/"
             stdin, stdout, stderr = self.ssh_client.exec_command(grep_command)
             output = stdout.read().decode()
             if output:

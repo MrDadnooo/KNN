@@ -34,7 +34,7 @@ def create_from_raw_data(image_uuid: str, ann_rec: AnnotationRecord) -> None | D
         text_anns = []
         for im, text_ann_list in ann_rec.annotations.items():
             for text in text_ann_list:
-                text_anns.append(text_anns)
+                text_anns.append(text)
                 text.image = im
             im.texts = text_ann_list
 
