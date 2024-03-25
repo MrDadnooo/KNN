@@ -1,7 +1,7 @@
 from typing import IO, Iterator
 
 import numpy as np
-import xml.etree.ElementTree as et
+import xml.etree.ElementTree as eTree
 import translator
 
 
@@ -28,8 +28,8 @@ class TextRegion:
 
 
 class Page:
-    def __init__(self, uuid, width, height, text_regions):
-        self.uuid = uuid
+    def __init__(self, uuid: str, width, height, text_regions):
+        self.uuid = uuid[5:] if uuid.startswith("uuid:") else uuid
         self.width = int(width)
         self.height = int(height)
         self.text_regions = text_regions
@@ -51,7 +51,7 @@ def parse_xml_document(xml_file: IO[bytes]) -> Page:
     def tag(el): return el.tag.split('}', 1)[1] if '}' in el.tag else el.tag
 
     # convert the XML document to a tree-like structure
-    xml_root = et.parse(xml_file)
+    xml_root = eTree.parse(xml_file)
     # find the <Page/> element (that element contains all data we're interested in)
     page_el = None
     for child in xml_root.getroot():

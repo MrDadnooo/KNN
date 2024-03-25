@@ -63,6 +63,9 @@ class Dataset:
         with open(ds_path, 'wb') as ds_file:
             pickle.dump(self.data_points, ds_file)
 
+    def __iter__(self):
+        return iter(self.data_points)
+
 
 def load_data_set(ds_path: str) -> None | Dataset:
     if path.isfile(ds_path):
