@@ -7,7 +7,7 @@ from os import path
 import threading
 import pickle
 import zipfile
-import queue
+from PIL import Image
 from annotation import ImageLabelData
 
 HOSTNAME = 'merlin.fit.vutbr.cz'
@@ -150,12 +150,12 @@ class DataManager:
             return zip_file.open(f"uuid:{image_uuid}.xml", 'r')
         return None
 
-    def get_image_crops(self, image_uuid: str, image_label: ImageLabelData) -> IO[bytes] | None:
+    def get_image_crops(self, image_uuid: str, image_label: ImageLabelData) -> Image:
         (p_dir, zip_file_idx) = self.__find_zip_file_idx(image_uuid)
         zip_file: zipfile.ZipFile = self.__fetch_zip_file(p_dir, zip_file_idx, image_uuid, 'crops')
         if zip_file:
             img_name: str = f"uuid:{image_uuid}__{image_label.label}_{image_label.idx}.jpg"
-            return zip_file.open(img_name, 'r')
+            return Image.open(zip_file.open(img_name, 'r'))
         return None
 
     def get_image_labels(self, image_uuid: str) -> IO[bytes] | None:

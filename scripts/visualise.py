@@ -29,7 +29,7 @@ def plot_text_regions(data_point: ds.DataPoint) -> None:
         if im.ocr_ref:
             image_crop = dataManager.get_image_crops(data_point.page.uuid, im.ocr_ref)
             x, y, w, h = (im.ocr_ref.x, im.ocr_ref.y, im.ocr_ref.w, im.ocr_ref.h)
-            ax.imshow(Image.open(BytesIO(image_crop.read())), extent=[x, x + w, y, y + h])
+            ax.imshow(image_crop, extent=[x, x + w, y, y + h])
         polygon = patches.Polygon(im.coords, closed=True, fill=False, edgecolor=col, linewidth=1)
         ax.add_patch(polygon)
         for text_ann in im.texts:

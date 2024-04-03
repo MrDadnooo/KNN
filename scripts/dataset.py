@@ -98,17 +98,27 @@ def create_data_set(json_path: str, limit: int = None) -> None | Dataset:
 
 
 def pair_text_data_and_annotations(ocr_data: ocr.Page, ann_el: AnnotationRecord) -> None:
+    """
+    Match text annotation with corresponding text lines there can be an N:1 relation
+    between text_lines and text_annotation so the intersection will be used as:
+    if intersection of text_line with text_annotation covers at least 50% of the area of the
+    text_line's polygon.
+    :param ocr_data:
+    :param ann_el:
+    :return:
+    """
     for image, text_anns in ann_el.annotations.items():
         for text_ann in text_anns:
-            curr_best = (0.0, None)
+            intersect_text_lines = []
             for text_region in ocr_data:
                 for text_line in text_region:
-                    ocr_poly = Polygon(text_line.coords)
+                    text_line_poly = Polygon(text_line.coords)
+                    req_area = 0.5 * text_line_poly.area
                     ann_poly = Polygon(text_ann.coords)
-                    intersect = ocr_poly.intersection(ann_poly)
-                    if intersect.area > curr_best[0]:
-                        curr_best = (intersect.area, text_line)
-            text_ann.ocr_ref = curr_best[1]
+                    intersect = text_line_poly.intersection(ann_poly)
+                    if intersect.area > req_area:
+                        intersect_text_lines.append(text_line)
+            text_ann.text_lines = intersect_text_lines
 
 
 def pair_image_annotations_with_labels(ann_el: AnnotationRecord):
