@@ -21,11 +21,11 @@ else:
 
 
 def translate(text: str) -> str:
+    if text is None:
+            return ""
     if torch.cuda.is_available():
         tokens = tokenizer([text], return_tensors='pt', padding=True).to('cuda')
     else:
-        if text is None:
-            return ""
         tokens = tokenizer([text], return_tensors='pt', padding=True)
     translated_tokens = model.generate(**tokens, num_beams=4, max_length=40, early_stopping=True)
     translated_text = tokenizer.batch_decode(translated_tokens, skip_special_tokens=True)
