@@ -59,7 +59,7 @@ class Dataset:
             mkdir(f'{cache_path}/datasets')
 
         curr_datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        ds_path = path.join(cache_path, 'datasets', f"dataset_{len(self.data_points)}_{curr_datetime_str}")
+        ds_path = path.join(cache_path, 'datasets', f"dataset_{len(self.data_points)}")
         with open(ds_path, 'wb') as ds_file:
             pickle.dump(self.data_points, ds_file)
 
@@ -94,6 +94,33 @@ def create_data_set(json_path: str, limit: int = None) -> None | Dataset:
                 data_points.append(data_point)
             else:
                 print(f"Could not fetch a xml ocr data file for uuid: {image_uuid}")
+        return Dataset(data_points)
+
+
+def update_data_set(json_path: str, ds_path: str, limit: int = None) -> None | Dataset:
+    dataset = load_data_set(ds_path)
+
+    print(f"Updating a data set {ds_path} with {len(dataset)} records from annotation file at: {json_path}")
+
+    with open(json_path, 'r', encoding='utf-8') as f:
+        json_data = json.load(f)
+        annotation_records = annotation.parse_input_json(json_data)
+
+        data_points = []
+        for idx, (image_uuid, ann_rec) in enumerate(annotation_records.items()):
+            if image_uuid in [dp.page.uuid for dp in dataset]:
+                limit += 1
+                continue
+            if limit and idx >= limit:
+                break
+            data_point = create_from_raw_data(image_uuid, ann_rec)
+            if data_point:
+                print(f'[{idx}] successfully created a data point for uuid: {image_uuid}')
+                data_points.append(data_point)
+            else:
+                print(f"Could not fetch a xml ocr data file for uuid: {image_uuid}")
+        for dp in dataset:
+            data_points.append(dp)
         return Dataset(data_points)
 
 
