@@ -6,30 +6,80 @@ from annotation import TextAnnotation, ImageAnnotation
 from parse_xml import TextLine
 
 
-model, _, preprocess = open_clip.create_model_and_transforms('ViT-g-14', pretrained='laion2b_s34b_b88k')
-tokenizer = open_clip.get_tokenizer('ViT-g-14')
 
+# def compute_clip_probs(data_point: dataset.DataPoint) -> dict[ImageAnnotation, list[tuple[TextLine, float]]]:
+#     en_text = [line.en_text for line in data_point.text_lines]
+#     cz_text = [line.text for line in data_point.text_lines]
+#     tokenized_text = tokenizer(en_text)
 
-def compute_clip_probs(data_point: dataset.DataPoint) -> dict[ImageAnnotation, list[tuple[TextLine, float]]]:
-    en_text = [line.en_text for line in data_point.text_lines]
-    cz_text = [line.text for line in data_point.text_lines]
-    tokenized_text = tokenizer(en_text)
+#     result: dict[ImageAnnotation, list[tuple[TextLine, float]]] = {}
 
-    result: dict[ImageAnnotation, list[tuple[TextLine, float]]] = {}
+#     for image_ann in data_point.img_annotations:
+#         image = dataManager.get_image_crops(data_point.page.uuid, image_ann.ocr_ref)
+#         preprocessed_image = preprocess(image).unsqueeze(0)
 
-    for image_ann in data_point.img_annotations:
-        image = dataManager.get_image_crops(data_point.page.uuid, image_ann.ocr_ref)
-        preprocessed_image = preprocess(image).unsqueeze(0)
+#         with torch.no_grad(), torch.cuda.amp.autocast():
+#             image_features = model.encode_image(preprocessed_image)
+#             text_features = model.encode_text(tokenized_text)
+#             image_features /= image_features.norm(dim=-1, keepdim=True)
+#             text_features /= text_features.norm(dim=-1, keepdim=True)
 
-        with torch.no_grad(), torch.cuda.amp.autocast():
-            image_features = model.encode_image(preprocessed_image)
-            text_features = model.encode_text(tokenized_text)
-            image_features /= image_features.norm(dim=-1, keepdim=True)
-            text_features /= text_features.norm(dim=-1, keepdim=True)
+#             text_probs = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+#             result[image_ann] = sorted(list(zip(data_point.text_lines, text_probs.tolist()[0])), key=lambda x: x[1], reverse=True)
+#     return result
 
-            text_probs = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-            result[image_ann] = sorted(list(zip(data_point.text_lines, text_probs.tolist()[0])), key=lambda x: x[1], reverse=True)
+import torch
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+def collate_fn(batch):
+    return batch
+
+def compute_clip_probs_batch(dataset, device, model, tokenizer, preprocess, batch_size=16):
+    result = []
+    model.to(device)
+
+    dataloader = DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn)
+
+    for batch in tqdm(dataloader, desc="Processing batches"):
+        batch_images = {}
+
+        for dp in batch:
+            for image_ann in dp.img_annotations:
+                image_key = (dp.page.uuid, image_ann.ocr_ref)
+                if image_key not in batch_images:
+                    image = dataManager.get_image_crops(dp.page.uuid, image_ann.ocr_ref)
+                    preprocessed_image = preprocess(image).to(device).unsqueeze(0)
+                    batch_images[image_key] = preprocessed_image
+
+        en_texts = [[line.en_text for line in dp.text_lines] for dp in batch]
+        tokenized_texts = [tokenizer(en_text) for en_text in en_texts]
+
+        batch_result = []
+        for dp, tokenized_text in zip(batch, tokenized_texts):
+            try:
+                result_dict = {}
+                for image_ann in dp.img_annotations:
+                    image_key = (dp.page.uuid, image_ann.ocr_ref)
+                    preprocessed_image = batch_images[image_key]
+                    with torch.no_grad(), torch.cuda.amp.autocast():
+                        image_features = model.encode_image(preprocessed_image)
+                        text_features = model.encode_text(tokenized_text.to(device))
+                        image_features /= image_features.norm(dim=-1, keepdim=True)
+                        text_features /= text_features.norm(dim=-1, keepdim=True)
+
+                        text_probs = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+
+                        result_dict[image_ann] = sorted(list(zip(dp.text_lines, text_probs.tolist()[0])), key=lambda x: x[1], reverse=True)
+                batch_result.append(result_dict)
+            except RuntimeError as e:
+                batch_result.append({dp.page.uuid: e})
+
+        result.extend(batch_result)
+        torch.cuda.empty_cache()
+
     return result
+
 
 
 def eval_clip_result(
