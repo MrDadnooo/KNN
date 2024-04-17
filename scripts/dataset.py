@@ -28,8 +28,8 @@ def create_from_raw_data(image_uuid: str, ann_rec: AnnotationRecord) -> None | D
     xml_file = dataManager.get_xml_file(image_uuid)
     if xml_file:
         ocr_page = ocr.parse_xml_document(xml_file)
-        pair_text_data_and_annotations(ocr_page, ann_rec)
         pair_image_annotations_with_labels(ann_rec)
+        pair_text_data_and_annotations(ocr_page, ann_rec)
 
         text_anns = []
         for im, text_ann_list in ann_rec.annotations.items():
@@ -67,7 +67,7 @@ class Dataset:
         return iter(self.data_points)
 
 
-def load_data_set(ds_path: str) -> None | Dataset:
+def load_data_set(ds_path: str) -> None | list[DataPoint]:
     if path.isfile(ds_path):
         with open(ds_path, 'rb') as ds_file:
             dataset = pickle.load(ds_file)
@@ -95,6 +95,24 @@ def create_data_set(json_path: str, limit: int = None) -> None | Dataset:
             else:
                 print(f"Could not fetch a xml ocr data file for uuid: {image_uuid}")
         return Dataset(data_points)
+
+
+def filter_overlapping_regions(data_point: DataPoint):
+    to_remove = []
+    for region in data_point.text_regions:
+        reg_poly = Polygon(region.coords)
+        for image_ann in data_point.img_annotations:
+            img_poly = Polygon(image_ann.coords)
+            i_s = reg_poly.intersection(img_poly)
+            print(i_s.area, reg_poly.area)
+            if i_s.area >= reg_poly.area - reg_poly.area * 0.05:
+                to_remove.append(region)
+                print('intersect')
+    for region in to_remove:
+        for text_line in region:
+            data_point.text_lines.remove(text_line)
+        data_point.text_regions.remove(region)
+        data_point.page.text_regions.remove(region)
 
 
 def update_data_set(json_path: str, ds_path: str, limit: int = None) -> None | Dataset:
