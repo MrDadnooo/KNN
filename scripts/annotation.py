@@ -1,6 +1,7 @@
 import numpy as np
 from urllib.parse import unquote
 from parse_xml import TextLine
+from PIL import Image
 
 
 def box(value: dict[str, object], org_w: int, org_h: int) -> tuple[tuple[float, float, float, float], np.array]:
@@ -36,6 +37,7 @@ class ImageAnnotation:
         self.id = ann_id
         (self.x, self.y, self.w, self.h), self.coords = box(coords, int(org_w), int(org_h))
         self.texts = []
+        self.image_data: Image = None
 
 
 class AnnotationRecord:

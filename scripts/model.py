@@ -23,8 +23,7 @@ def compute_clip_probs(data_point: dataset.DataPoint) -> dict[ImageAnnotation, l
     result: dict[ImageAnnotation, list[tuple[TextLine, float]]] = {}
 
     for image_ann in data_point.img_annotations:
-        image = dataManager.get_image_crops(data_point.page.uuid, image_ann.ocr_ref)
-        preprocessed_image = preprocess(image).unsqueeze(0).to(device)
+        preprocessed_image = preprocess(image_ann.image_data).unsqueeze(0).to(device)
 
         with torch.no_grad(), torch.cuda.amp.autocast():
             image_features = model.encode_image(preprocessed_image).to(device)
@@ -97,6 +96,10 @@ def eval_clip_result(
         text_line_count: int = len(text_ann_lines)
         score: float = sum([i if text_line in text_ann_lines and i >= text_line_count else 0 for i, (text_line, _) in enumerate(results)])
         norm: float = (text_line_count/2) * (len(results)*2 - text_line_count + 1)
+        if norm == 0.0:
+            print(f"Missing text annotations, possibly filtered due to overlapping with image ...")
+            print("setting `score=0.0`")
+            continue
         norm_score: float = score / norm
         result[img_ann] = 1.0 - norm_score
     return result

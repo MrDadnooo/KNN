@@ -1,11 +1,7 @@
-from io import BytesIO
-
 from matplotlib import pyplot as plt
 import matplotlib.patches as patches
-from download import dataManager
 import dataset as ds
 import numpy as np
-from PIL import Image
 
 
 def plot_text_regions(data_point: ds.DataPoint) -> None:
@@ -27,9 +23,8 @@ def plot_text_regions(data_point: ds.DataPoint) -> None:
         col = np.random.rand(3, )
 
         if im.ocr_ref:
-            image_crop = dataManager.get_image_crops(data_point.page.uuid, im.ocr_ref)
             x, y, w, h = (im.ocr_ref.x, im.ocr_ref.y, im.ocr_ref.w, im.ocr_ref.h)
-            ax.imshow(image_crop, extent=[x, x + w, y, y + h])
+            ax.imshow(im.image_data, extent=[x, x + w, y, y + h])
         polygon = patches.Polygon(im.coords, closed=True, fill=False, edgecolor=col, linewidth=1)
         ax.add_patch(polygon)
         for text_ann in im.texts:

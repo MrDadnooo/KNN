@@ -3,6 +3,7 @@ from typing import IO, Iterator
 import numpy as np
 import xml.etree.ElementTree as eTree
 import translator
+from shapely import Polygon
 
 
 class TextLine:
@@ -47,7 +48,7 @@ def parse_points(input_str: str) -> np.array:
     return np.array([list(map(int, point.split(','))) for point in input_str.split()])
 
 
-def parse_xml_document(xml_file: IO[bytes]) -> Page:
+def parse_xml_document(xml_file: IO[bytes], ann_rec) -> Page:
     def tag(el): return el.tag.split('}', 1)[1] if '}' in el.tag else el.tag
 
     # convert the XML document to a tree-like structure
@@ -92,9 +93,20 @@ def parse_xml_document(xml_file: IO[bytes]) -> Page:
                 text_lines.append(TextLine(index, custom_heights, text_line_coords, baseline, conf, text))
         text_region = TextRegion(coords, text_lines)
 
-        text_regions.append(text_region)
-        for text_line in text_region:
-            text_line.text_region = text_region
+        # if the current region overlaps with any image it is ignored
+        overlapping: bool = False
+        for img_ann in list(ann_rec.annotations.keys()):
+            img_poly = Polygon(img_ann.coords)
+            reg_poly = Polygon(np.array([list(map(int, point.split(','))) for point in coords.split()]))
+            i_sect = reg_poly.intersection(img_poly)
+            if i_sect.area >= reg_poly.area - reg_poly.area * 0.05:
+                overlapping = True
+                break
+
+        if not overlapping:
+            text_regions.append(text_region)
+            for text_line in text_region:
+                text_line.text_region = text_region
     # create the top-level element representing whole xml page and return
     page = Page(uuid, width, height, text_regions)
     for text_region in page:
