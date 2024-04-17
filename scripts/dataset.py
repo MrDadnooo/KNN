@@ -91,6 +91,7 @@ class Dataset:
                     try:
                         data_point = create_from_raw_data(image_uuid, ann_rec)
                     except Exception:
+                        data_point = None
                         self.error_uuids.add(image_uuid)
                     if data_point:
                         self.data_points.append(data_point)
