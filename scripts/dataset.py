@@ -86,7 +86,7 @@ class Dataset:
                 for image_uuid, ann_rec in annotation_records.items():
                     if added >= limit:
                         return
-                    if image_uuid in self.uuids:
+                    if image_uuid in self.uuids or self.error_uuids:
                         continue
                     try:
                         data_point = create_from_raw_data(image_uuid, ann_rec)
