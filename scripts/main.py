@@ -23,11 +23,15 @@ def main():
     if dataset_files:
         indices = [int(file.split('_')[-1]) for file in dataset_files]
 
-        dataset_path = os.path.join('../res/cache/datasets/', f'dataset_{max(indices)}')
+        # dataset_path = os.path.join('../res/cache/datasets/', f'dataset_{max(indices)}')
+        dataset_path = os.path.join('../res/cache/datasets/dataset_277')
 
         if args.update:
-            data_set = dataset.update_data_set(dataManager.annotation_path, dataset_path, limit=10)
-            data_set.save()
+            print('Loading a dataset ...')
+            update_dataset = dataset.load_data_set(dataset_path)
+            print('Updating a dataset ...')     
+            update_dataset.update(100, dataManager.annotation_path)
+            update_dataset.save()
 
         else:
             print('Loading a dataset ...')
@@ -36,8 +40,8 @@ def main():
         data_set = dataset.create_data_set(dataManager.annotation_path, limit=1)
         data_set.save()
 
-    for dp in data_set:
-        visualise.plot_text_regions(dp)
+    # for dp in data_set:
+    #     visualise.plot_text_regions(dp)
 
 
 if __name__ == "__main__":

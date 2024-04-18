@@ -8,7 +8,10 @@ import annotation
 from download import dataManager
 import json
 from datetime import datetime
-
+from typing import List
+import re
+from translator import translate
+import nltk
 
 class DataPoint:
     def __init__(self, text_annotations: list[TextAnnotation],
@@ -22,6 +25,58 @@ class DataPoint:
         self.text_lines = text_lines
         self.text_regions = text_regions
         self.page = page
+        self.sentences = None
+
+    def remove_lines_with_one_character(self):
+        self.text_lines = [line for line in self.text_lines if (line.text is not None and len(line.text) > 1)]
+
+    def create_map_sentences(self):
+        self.sentences = create_split_map(self)
+
+class Sentence:
+    def __init__(self, sentence, positions) -> None:
+        self.sentence = sentence
+        self.positions = positions
+        self.en_text = translate(sentence)
+
+
+
+def create_split_map(Datapoint: DataPoint) -> List[Sentence]:
+    # Function to remove hyphens between words
+    def remove_hyphens(in_str):
+        return re.sub(r'(?<=\w)-\s(?=\w)', '', str(in_str))
+
+    # Extracting sentences from text regions
+    sentences = []
+    for reg in Datapoint.text_regions:
+        text = ' '.join([line.text for line in reg.text_lines if line.text])
+        text = remove_hyphens(text)  # Remove hyphens
+
+        sentences.extend(nltk.sent_tokenize(text, language='czech'))
+
+    # Create split map
+    text_lines = [line for line in Datapoint.text_lines if line.text is not None]
+    new_text_array = [(word, line) for line in text_lines for word in line.text.split()]
+
+    split_map = []
+    for sentence in sentences:
+        rows = set()
+        words = sentence.split()
+        i = 0
+        while i < len(words):
+            word = words[i]
+            if new_text_array and word == new_text_array[0][0]:
+                rows.add(new_text_array[0][1])
+                new_text_array.pop(0)
+            elif new_text_array and new_text_array[0][0][-1] == '-':
+                rows.add(new_text_array[0][1])
+                rows.add(new_text_array[1][1])
+                new_text_array.pop(0)
+                new_text_array.pop(0)
+            i += 1
+        split_map.append(Sentence(sentence, list(rows)))
+
+    return split_map
 
 
 def create_from_raw_data(image_uuid: str, ann_rec: AnnotationRecord) -> None | DataPoint:
@@ -57,13 +112,17 @@ class Dataset:
         self.error_uuids: set[str] = set()
         self.data_points = data_points
 
-    def save(self):
+    def save(self, name: str = None):
         cache_path = dataManager.cache_path
 
         if not path.isdir(f'{cache_path}/datasets'):
             mkdir(f'{cache_path}/datasets')
 
-        ds_path = path.join(cache_path, 'datasets', f"dataset_{len(self.data_points)}")
+        if name is None:
+            ds_path = path.join(cache_path, 'datasets', f"dataset_{len(self.data_points)}")
+        else:
+            ds_path = path.join(cache_path, 'datasets', name)
+
         with open(ds_path, 'wb') as ds_file:
             pickle.dump(self, ds_file)
 
@@ -79,18 +138,23 @@ class Dataset:
             self.ann_paths.add(json_path)
 
         for json_path in self.ann_paths:
+            print(len(self.uuids), len(self.error_uuids))
             with open(json_path, 'r', encoding='utf-8') as f:
                 json_data = json.load(f)
                 annotation_records = annotation.parse_input_json(json_data)
-
+                print(len(annotation_records))
                 for image_uuid, ann_rec in annotation_records.items():
+                    print(f"{image_uuid=}, {added=}, {limit=}")
                     if added >= limit:
+                        print("done")
                         return
-                    if image_uuid in self.uuids or self.error_uuids:
+                    if image_uuid in self.uuids or image_uuid in self.error_uuids:
+                        print("skipping")
                         continue
                     try:
                         data_point = create_from_raw_data(image_uuid, ann_rec)
                     except Exception:
+                        print("imhere")
                         data_point = None
                         self.error_uuids.add(image_uuid)
                     if data_point:
