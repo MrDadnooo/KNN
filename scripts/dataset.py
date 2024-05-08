@@ -49,6 +49,7 @@ class DataPoint:
     def add_translation(self):
         pass
 
+
 class Sentence:
     def __init__(self, sentence, positions) -> None:
         self.sentence = sentence
@@ -89,7 +90,7 @@ def process_sentences(newSen, new_text_array):
                     del text_dict[word]
                 rows.add(tag)
             i += 1
-        
+
         split_map.append(Sentence(sentence, list(rows)))
 
         # Optionally clean up the dictionary by removing items that are fully processed
@@ -120,7 +121,7 @@ def create_split_map(Datapoint: DataPoint) -> List[Sentence]:
     # Create split map
     text_lines = [line for line in Datapoint.text_lines if line.text is not None]
     new_text_array = [(word, line) for line in text_lines for word in line.text.split()]
-    
+
     mytime = time.time()
     print(f'Start creating map: {time.time() -  mytime}')
     mytime = time.time()

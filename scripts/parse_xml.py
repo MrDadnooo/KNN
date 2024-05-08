@@ -21,6 +21,7 @@ class TextLine:
 
 class TextRegion:
     def __init__(self, coords, text_lines):
+        self.is_annotation = None
         self.coords = parse_points(coords)
         self.text_lines = text_lines
         self.page = None
