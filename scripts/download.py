@@ -16,7 +16,8 @@ PORT = 22
 REMOTE_PATH = '/mnt/matylda1/ikiss/pero/experiments/digiknihovny'
 CACHE_PATH = '../res/cache'
 IMAGE_ZIP_MAPPING = 'image_zip_mapping'
-JSON_PATH = '../res/project-9-at-2024-03-05-17-19-577ee11f.json'
+# JSON_PATH = '../res/project-9-at-2024-03-05-17-19-577ee11f.json'
+JSON_PATH = '../res/project-9-at-2024-04-23-08-54-b684460e.json'
 
 
 def processing_folder_generator(sftp: paramiko.SFTPClient, remote_path: str) -> Iterator[str]:

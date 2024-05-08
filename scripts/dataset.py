@@ -12,6 +12,10 @@ from typing import List
 import re
 from translator import translate
 import nltk
+import time
+import numpy
+from langdetect import detect
+
 
 class DataPoint:
     def __init__(self, text_annotations: list[TextAnnotation],
@@ -26,6 +30,7 @@ class DataPoint:
         self.text_regions = text_regions
         self.page = page
         self.sentences = None
+        self.language = None
 
     def remove_lines_with_one_character(self):
         self.text_lines = [line for line in self.text_lines if (line.text is not None and len(line.text) > 1)]
@@ -33,12 +38,70 @@ class DataPoint:
     def create_map_sentences(self):
         self.sentences = create_split_map(self)
 
+    def add_language(self):
+        text = [text.text for text in self.text_lines if text.text is not None]
+        try:
+            lang = ''.join(text[:10])
+        except:
+            lang = ''.join(text)
+        self.language = detect(lang)
+
+    def add_translation(self):
+        pass
+
 class Sentence:
     def __init__(self, sentence, positions) -> None:
         self.sentence = sentence
         self.positions = positions
         self.en_text = translate(sentence)
 
+
+def preprocess_text_array(new_text_array):
+    """
+    Convert the list of [word, tag] pairs into a dictionary for fast lookup.
+    If words can repeat and order matters, we must handle this carefully.
+    """
+    text_dict = {}
+    for index, (word, tag) in enumerate(new_text_array):
+        if word not in text_dict:
+            text_dict[word] = []
+        text_dict[word].append((tag, index))
+    return text_dict
+
+def process_sentences(newSen, new_text_array):
+    split_map = []
+    start = time.perf_counter()  # Start the timer
+
+    # Pre-process the text array into a dictionary
+    text_dict = preprocess_text_array(new_text_array)
+
+    for sentence in newSen:
+        rows = set()
+        words = sentence.split()
+        i = 0
+        indices_to_remove = []
+
+        while i < len(words):
+            word = words[i]
+            if word in text_dict:
+                tag, _ = text_dict[word].pop(0)
+                if not text_dict[word]:  # If no more tags left for this word, remove it from dict
+                    del text_dict[word]
+                rows.add(tag)
+            i += 1
+        
+        split_map.append(Sentence(sentence, list(rows)))
+
+        # Optionally clean up the dictionary by removing items that are fully processed
+        for idx in sorted(indices_to_remove, reverse=True):
+            if text_dict[word]:
+                text_dict[word].pop(idx)
+            if not text_dict[word]:
+                del text_dict[word]
+
+    elapsed_time = time.perf_counter() - start  # End the timer
+    print(f"Processing completed in {elapsed_time} seconds")
+    return split_map
 
 
 def create_split_map(Datapoint: DataPoint) -> List[Sentence]:
@@ -57,24 +120,16 @@ def create_split_map(Datapoint: DataPoint) -> List[Sentence]:
     # Create split map
     text_lines = [line for line in Datapoint.text_lines if line.text is not None]
     new_text_array = [(word, line) for line in text_lines for word in line.text.split()]
+    
+    mytime = time.time()
+    print(f'Start creating map: {time.time() -  mytime}')
+    mytime = time.time()
 
-    split_map = []
-    for sentence in sentences:
-        rows = set()
-        words = sentence.split()
-        i = 0
-        while i < len(words):
-            word = words[i]
-            if new_text_array and word == new_text_array[0][0]:
-                rows.add(new_text_array[0][1])
-                new_text_array.pop(0)
-            elif new_text_array and new_text_array[0][0][-1] == '-':
-                rows.add(new_text_array[0][1])
-                rows.add(new_text_array[1][1])
-                new_text_array.pop(0)
-                new_text_array.pop(0)
-            i += 1
-        split_map.append(Sentence(sentence, list(rows)))
+    print(type(sentences))
+
+    newSen = numpy.array(sentences)
+
+    process_sentences
 
     return split_map
 
@@ -144,7 +199,6 @@ class Dataset:
                 annotation_records = annotation.parse_input_json(json_data)
                 print(len(annotation_records))
                 for image_uuid, ann_rec in annotation_records.items():
-                    print(f"{image_uuid=}, {added=}, {limit=}")
                     if added >= limit:
                         print("done")
                         return
@@ -160,7 +214,7 @@ class Dataset:
                     if data_point:
                         self.data_points.append(data_point)
                         added += 1
-                        print(f"successfully added data_point {image_uuid}")
+                        print(f"successfully added data_point {image_uuid}, {added=}, {limit=}")
                         self.uuids.add(image_uuid)
                     else:
                         print(f"Could not fetch a xml ocr data file for uuid: {image_uuid}")

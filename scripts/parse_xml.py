@@ -14,7 +14,8 @@ class TextLine:
         self.baseline = parse_points(baseline)
         self.conf = conf
         self.text = text
-        self.en_text = translator.translate(text)
+        # self.en_text = translator.translate(text)
+        self.en_text = None
         self.text_region = None
 
 
@@ -112,6 +113,3 @@ def parse_xml_document(xml_file: IO[bytes], ann_rec) -> Page:
     for text_region in page:
         text_region.page = page
     return page
-
-
-
