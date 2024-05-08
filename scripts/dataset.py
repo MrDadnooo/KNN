@@ -166,6 +166,10 @@ class Dataset:
         self.uuids: set[str] = set()
         self.error_uuids: set[str] = set()
         self.data_points = data_points
+        self.index = 0
+
+    def add_index(self):
+        self.index = 0
 
     def save(self, name: str = None):
         cache_path = dataManager.cache_path
@@ -182,7 +186,18 @@ class Dataset:
             pickle.dump(self, ds_file)
 
     def __iter__(self):
-        return iter(self.data_points)
+        self.index = 0
+        return self
+
+    def __next__(self):
+        # print(self.error_uuids)
+        while self.index < len(self.data_points):
+            dp = self.data_points[self.index]
+            self.index += 1
+            if dp.page.uuid not in self.error_uuids:
+
+                return dp
+        raise StopIteration
 
     def __len__(self):
         return len(self.data_points)
