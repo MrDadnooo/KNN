@@ -2,7 +2,6 @@ from typing import IO, Iterator
 
 import numpy as np
 import xml.etree.ElementTree as eTree
-import translator
 from shapely import Polygon
 
 

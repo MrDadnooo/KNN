@@ -54,7 +54,7 @@ class Sentence:
     def __init__(self, sentence, positions) -> None:
         self.sentence = sentence
         self.positions = positions
-        self.en_text = translate(sentence)
+        # self.en_text = translate(sentence)
 
 
 def preprocess_text_array(new_text_array):
@@ -68,42 +68,6 @@ def preprocess_text_array(new_text_array):
             text_dict[word] = []
         text_dict[word].append((tag, index))
     return text_dict
-
-def process_sentences(newSen, new_text_array):
-    split_map = []
-    start = time.perf_counter()  # Start the timer
-
-    # Pre-process the text array into a dictionary
-    text_dict = preprocess_text_array(new_text_array)
-
-    for sentence in newSen:
-        rows = set()
-        words = sentence.split()
-        i = 0
-        indices_to_remove = []
-
-        while i < len(words):
-            word = words[i]
-            if word in text_dict:
-                tag, _ = text_dict[word].pop(0)
-                if not text_dict[word]:  # If no more tags left for this word, remove it from dict
-                    del text_dict[word]
-                rows.add(tag)
-            i += 1
-
-        split_map.append(Sentence(sentence, list(rows)))
-
-        # Optionally clean up the dictionary by removing items that are fully processed
-        for idx in sorted(indices_to_remove, reverse=True):
-            if text_dict[word]:
-                text_dict[word].pop(idx)
-            if not text_dict[word]:
-                del text_dict[word]
-
-    elapsed_time = time.perf_counter() - start  # End the timer
-    print(f"Processing completed in {elapsed_time} seconds")
-    return split_map
-
 
 def create_split_map(Datapoint: DataPoint) -> List[Sentence]:
     # Function to remove hyphens between words
@@ -122,18 +86,25 @@ def create_split_map(Datapoint: DataPoint) -> List[Sentence]:
     text_lines = [line for line in Datapoint.text_lines if line.text is not None]
     new_text_array = [(word, line) for line in text_lines for word in line.text.split()]
 
-    mytime = time.time()
-    print(f'Start creating map: {time.time() -  mytime}')
-    mytime = time.time()
-
-    print(type(sentences))
-
-    newSen = numpy.array(sentences)
-
-    process_sentences
+    split_map = []
+    for sentence in sentences:
+        rows = set()
+        words = sentence.split()
+        i = 0
+        while i < len(words):
+            word = words[i]
+            if new_text_array and word == new_text_array[0][0]:
+                rows.add(new_text_array[0][1])
+                new_text_array.pop(0)
+            elif new_text_array and new_text_array[0][0][-1] == '-':
+                rows.add(new_text_array[0][1])
+                rows.add(new_text_array[1][1])
+                new_text_array.pop(0)
+                new_text_array.pop(0)
+            i += 1
+        split_map.append(Sentence(sentence, list(rows)))
 
     return split_map
-
 
 def create_from_raw_data(image_uuid: str, ann_rec: AnnotationRecord) -> None | DataPoint:
     xml_file = dataManager.get_xml_file(image_uuid)

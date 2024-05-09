@@ -1,4 +1,3 @@
-from dataset import Dataset
 from tqdm import tqdm
 # loading xml file
 import torch
@@ -10,7 +9,7 @@ path_to_xmls = '../res/cache/processing.2023-09-18/zips/page_xml/'
 uuid = TEST_XML_FILE_NAME[:-4]
 
 
-def translate_dataset(dataset : Dataset):
+def translate_dataset(dataset):
     model, tokenizer = load_cs_model()
 
     for dp in tqdm(dataset.data_points, desc="Translating czech datapoints"):
