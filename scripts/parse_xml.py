@@ -17,6 +17,9 @@ class TextLine:
         self.en_text = None
         self.text_region = None
 
+    def get_en_text(self):
+        return self.text if self.en_text is None else self.en_text
+
 
 class TextRegion:
     def __init__(self, coords, text_lines):
