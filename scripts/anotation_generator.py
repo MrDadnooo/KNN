@@ -19,15 +19,19 @@ class AnnotationGenerator:
             image.save(buffer, format="PNG")
             image_bytes = buffer.getvalue()
 
+        prompt_better = 'Create a annotation for this image based on what is present in the image. The annotation should be max 1 sentence long.'
+        prompt_slightly_worse = 'Describe what is in the picture in one sentence.'
+
         full_response = ''
         for response in generate(model='llava',
-                                 prompt='Create a annotation for this image based on what is present in the image.'
-                                        'The annotation should be max 1 sentence long.',
+                                 prompt=prompt_better,
                                  images=[image_bytes],
                                  stream=True):
 
             full_response += (response['response'])
         return full_response
+
+
 
     def process_dataset(self):
         result = []
@@ -55,7 +59,7 @@ class SentenceEncoder:
             cos_scores = util.pytorch_cos_sim(image_features, text_features)
             cos_scores = cos_scores.cpu()
 
-            tmp = (sorted(list(zip(text, cos_scores[0])), key=lambda x: x[1], reverse=True))
+            tmp = (sorted(list(zip(data_point.text_lines, cos_scores[0])), key=lambda x: x[1], reverse=True))
             tmp = [(x[0], x[1].item()) for x in tmp]
             result[image_ann] = tmp
         return result
