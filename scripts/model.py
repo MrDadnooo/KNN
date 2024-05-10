@@ -57,50 +57,7 @@ def compute_clip_regions_dst(data_point: dataset.DataPoint) -> dict[ImageAnnotat
     return __compute_clip_distances(data_point, text, data_point.text_regions)
 
 
-def compute_clip_sentences_dst(data_point: dataset.DataPoint) -> dict[ImageAnnotation, list[tuple[str, float]]]:
-    sentences = [sen.en_text for sen in data_point.sentences]
+def compute_clip_sentences_dst(data_point: dataset.DataPoint) \
+        -> dict[ImageAnnotation, list[tuple[dataset.Sentence, float]]]:
+    sentences = [sen.sentence for sen in data_point.sentences]
     return __compute_clip_distances(data_point, sentences, data_point.sentences)
-
-
-# def compute_clip_probs_regions(data_point: dataset.DataPoint) -> dict[ImageAnnotation, list[tuple[TextRegion, float]]]:
-#     en_regions_text = [en_text_from_regions(region) for region in data_point.text_regions]
-#     tokenized_text = tokenizer(en_regions_text).to(device)
-#     result: dict[ImageAnnotation, list[tuple[TextRegion, float]]] = {}
-#
-#     for image_ann in data_point.img_annotations:
-#         preprocessed_image = preprocess(image_ann.image_data).unsqueeze(0).to(device)
-#
-#         # Calculate the distance between the image and text regions
-#         image_polygon = Polygon(image_ann.coords)
-#         distances = [image_polygon.distance(Polygon(reg.coords)) for reg in data_point.text_regions]
-#         max_distance = max(distances)
-#         normalized_distances = [dist / max_distance for dist in distances]
-#
-#         with torch.no_grad(), torch.cuda.amp.autocast():
-#             try:
-#                 image_features = model.encode_image(preprocessed_image).to(device)
-#                 text_features = model.encode_text(tokenized_text).to(device)
-#                 image_features /= image_features.norm(dim=-1, keepdim=True)
-#                 text_features /= text_features.norm(dim=-1, keepdim=True)
-#                 text_probs = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-#
-#                 # Calculate distance-weighted probabilities
-#                 weighted_probs = []
-#                 for reg, prob, dist in zip(data_point.text_regions, text_probs.tolist()[0], normalized_distances):
-#                     if len(reg.text_lines) > 10:
-#                         penalty_factor = 0.4  # Adjust the penalty factor as needed
-#                         prob *= penalty_factor
-#
-#                     # Weight the probability based on the normalized distance
-#                     weighted_prob = prob
-#                     if dist > 0.5:
-#                         weighted_prob *= 0.0001
-#                     elif dist < 0.02:
-#                         weighted_prob *= 10000.0
-#                     weighted_probs.append((reg, weighted_prob))
-#
-#                 result[image_ann] = sorted(weighted_probs, key=lambda x: x[1], reverse=True)
-#             except RuntimeError:
-#                 print(data_point.page.uuid)
-#                 break
-#     return result

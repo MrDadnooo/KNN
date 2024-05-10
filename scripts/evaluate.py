@@ -142,8 +142,54 @@ def eval_region_data_set(
             continue
         result += temp
 
-    print(f"{invalid=}")
     return result
+
+def eval_sentences_data_set(
+        data_set: dataset.Dataset,
+        model_results: list[dict[ImageAnnotation, list[tuple[object, float]]]],
+        threshold: float = 0.8) -> np.array:
+    result = np.array([0, 0, 0, 0])
+    for dp, result_dict in zip(data_set, model_results):
+        temp = eval_sentences_threshold(dp, result_dict, threshold)
+        result += temp
+
+    return result
+
+
+def eval_sentences_threshold(
+        data_point: dataset.DataPoint,
+        result_dict: dict[ImageAnnotation, list[tuple[dataset.Sentence, float]]],
+        threshold: float = 0.8) -> np.array:
+     for img_ann, results in result_dict.items():
+        res_sum = 0
+        # calculate index of the positive samples
+        threshold_idx = None
+        for threshold_idx, res in enumerate(results):
+            if res_sum > threshold:
+                break
+            res_sum += res[1]
+        text_anns = [t_ann for t_ann in data_point.text_annotations if t_ann.image == img_ann]
+        text_ann_lines = set([text_line for t_ann in text_anns for text_line in t_ann.text_lines])
+
+        # mark what regions are annotations
+        for sentence, _ in results:
+            sentence.is_annotation = any(line in text_ann_lines for line in sentence.positions)
+
+        result = np.array([0, 0, 0, 0])
+        # positives
+        for res in results[:threshold_idx]:
+            if res[0].is_annotation:
+                result[0] += 1
+            else:
+                result[1] += 1
+
+        # negatives
+        for res in results[threshold_idx:]:
+            if res[0].is_annotation:
+                result[3] += 1
+            else:
+                result[2] += 1
+        return result
 
 
 def eval_threshold_data_set(

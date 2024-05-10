@@ -14,7 +14,6 @@ class AnnotationGenerator:
     def __init__(self, ds_path: str):
         self.dataset = ds.load_data_set(ds_path)
 
-
     def process_image(self, image: Image):
         with BytesIO() as buffer:
             image.save(buffer, format="PNG")
@@ -62,10 +61,14 @@ class SentenceEncoder:
         return result
 
     def encode_dataset(self):
-        result = {}
+        result = []
         for data_point in tqdm(self.annotator.dataset):
-            new_data = self.encode_data_point(data_point)
-            result.update(new_data)
+            try:
+                new_data = self.encode_data_point(data_point)
+                result.append(new_data)
+            except Exception as e:
+                print(e)
+                continue
         return result
 
 

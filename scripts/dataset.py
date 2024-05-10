@@ -9,12 +9,9 @@ from download import dataManager
 import json
 from datetime import datetime
 from typing import List
-import re
-from translator import translate
-import nltk
-import time
-import numpy
 from langdetect import detect
+import nltk
+import re
 
 
 class DataPoint:
@@ -53,7 +50,8 @@ class DataPoint:
 class Sentence:
     def __init__(self, sentence, positions) -> None:
         self.sentence = sentence
-        self.positions = positions
+        self.positions: list[ocr.TextLine] = positions
+        self.is_annotation = False
         # self.en_text = translate(sentence)
 
 
