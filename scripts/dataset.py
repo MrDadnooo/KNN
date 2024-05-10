@@ -225,15 +225,18 @@ def create_data_set(json_path: str, limit: int = None) -> None | Dataset:
         print("Starting a data point creation process")
         data_points = []
         for idx, (image_uuid, ann_rec) in enumerate(annotation_records.items()):
-            if limit and idx >= limit:
-                break
-            data_point = create_from_raw_data(image_uuid, ann_rec)
-            if data_point:
-                print(f'[{idx}] successfully created a data point for uuid: {image_uuid}')
-                created_uuids.add(image_uuid)
-                data_points.append(data_point)
-            else:
-                print(f"Could not fetch a xml ocr data file for uuid: {image_uuid}")
+            try:
+                if limit and idx >= limit:
+                    break
+                data_point = create_from_raw_data(image_uuid, ann_rec)
+                if data_point:
+                    print(f'[{idx}] successfully created a data point for uuid: {image_uuid}')
+                    created_uuids.add(image_uuid)
+                    data_points.append(data_point)
+                else:
+                    print(f"Could not fetch a xml ocr data file for uuid: {image_uuid}")
+            except:
+                continue
         ds = Dataset(data_points)
         ds.ann_paths.add(json_path)
         ds.uuids = created_uuids
@@ -295,6 +298,10 @@ def update_data_set(json_path: str, ds_path: str, limit: int = None) -> None | D
     with open(json_path, 'r', encoding='utf-8') as f:
         json_data = json.load(f)
         annotation_records = annotation.parse_input_json(json_data)
+
+        # print("imhere")
+        # print(len(annotation_records.items()))
+        # return
 
         data_points = []
         for idx, (image_uuid, ann_rec) in enumerate(annotation_records.items()):

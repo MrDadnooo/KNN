@@ -12,12 +12,12 @@ uuid = TEST_XML_FILE_NAME[:-4]
 def translate_dataset(dataset):
     model, tokenizer = load_cs_model()
 
-    for dp in tqdm(dataset.data_points, desc="Translating czech datapoints"):
+    for dp in tqdm(dataset, desc="Translating czech datapoints"):
         if dp.language != 'de' and dp.page.uuid not in dataset.error_uuids:
             text = [sen.text for sen in dp.text_lines]
             tranlated_text = translate(text, model, tokenizer)
             for i, en_text in enumerate(dp.text_lines):
-                en_text.text = tranlated_text[i]
+                en_text.en_text = tranlated_text[i]
         else:
             continue
 
@@ -29,8 +29,8 @@ def translate_dataset(dataset):
         if dp.language == 'de' and dp.page.uuid not in dataset.error_uuids:
             text = [sen.text for sen in dp.text_lines]
             tranlated_text = translate(text, model, tokenizer)
-            for i, en_text in enumerate(dp.text_lines):
-                en_text.text = tranlated_text[i]
+            for i, line in enumerate(dp.text_lines):
+                line.en_text = tranlated_text[i]
         else:
             continue
     

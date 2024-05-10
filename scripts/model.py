@@ -51,7 +51,6 @@ def compute_clip_lines_dst(data_point: dataset.DataPoint) -> dict[ImageAnnotatio
     text: list[str] = [line.en_text for line in data_point.text_lines]
     return __compute_clip_distances(data_point, text, data_point.text_lines)
 
-
 def compute_clip_regions_dst(data_point: dataset.DataPoint) -> dict[ImageAnnotation, list[tuple[TextRegion, float]]]:
     text: list[str] = [en_text_from_regions(region) for region in data_point.text_regions]
     return __compute_clip_distances(data_point, text, data_point.text_regions)
