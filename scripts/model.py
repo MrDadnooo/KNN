@@ -21,7 +21,7 @@ def remove_hyphens(in_str):
 
 
 def en_text_from_regions(region: TextRegion):
-    return remove_hyphens(' '.join([line.en_text for line in region.text_lines if line.en_text]))
+    return remove_hyphens(' '.join([line.get_en_text() for line in region.text_lines if line.get_en_text()]))
 
 
 def __compute_clip_distances(data_point: dataset.DataPoint, text: list[str], point_entities: list[Any]) \
@@ -48,7 +48,7 @@ def __compute_clip_distances(data_point: dataset.DataPoint, text: list[str], poi
 
 
 def compute_clip_lines_dst(data_point: dataset.DataPoint) -> dict[ImageAnnotation, list[tuple[TextLine, float]]]:
-    text: list[str] = [line.en_text for line in data_point.text_lines]
+    text: list[str] = [line.get_en_text() for line in data_point.text_lines]
     return __compute_clip_distances(data_point, text, data_point.text_lines)
 
 

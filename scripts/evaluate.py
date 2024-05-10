@@ -26,7 +26,7 @@ def eval_sorted_score(
     return result
 
 
-def adjust_region_score(
+def adjust_score_by_dist(
         score_dict: dict[ImageAnnotation, list[tuple[TextRegion, float]]],
         len_max: int = 10,
         len_penalty: float = 0.4,
@@ -40,14 +40,16 @@ def adjust_region_score(
         img_poly = Polygon(img_ann.coords)
         dists = [img_poly.distance(Polygon(reg.coords)) for reg, _ in results]
         max_dist = max(dists)
-        norm_dists = [dist / max_dist for dist in dists]
+        norm_dists = [dist / (max_dist + 1e-15) for dist in dists]
 
         # compute penalties
         new_reg_list = []
         for idx, ((reg, score), dist) in enumerate(zip(results, norm_dists)):
             new_score = score
-            if len(reg.text_lines) > len_max:
-                new_score *= len_penalty
+            try:
+                if len(reg.text_lines) > len_max:
+                    new_score *= len_penalty
+            except: ...
             if dist > dist_far_threshold:
                 new_score *= dist_far_penalty
             if dist < dist_near_threshold:
